@@ -138,8 +138,6 @@ export default function App() {
     onDrop,
     accept: {
       'application/pdf': ['.pdf'],
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
-      'text/plain': ['.txt'],
     },
     multiple: true,
   });
@@ -459,7 +457,7 @@ export default function App() {
             <div className="drop-title">
               {isDragActive ? 'Déposer ici…' : 'Glisser-déposer les CV ici'}
             </div>
-            <div className="drop-sub">PDF, Word, TXT · plusieurs fichiers</div>
+            <div className="drop-sub">PDF uniquement · plusieurs fichiers</div>
           </div>
 
           {files.length > 0 && (

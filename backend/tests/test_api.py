@@ -45,6 +45,17 @@ def test_score_stream_no_poste():
     assert resp.status_code == 400
 
 
+def test_score_stream_rejects_non_pdf():
+    resp = client.post(
+        "/api/score-stream",
+        data={"poste": "Développeur"},
+        files=[("files", ("cv.docx", b"fake", "application/octet-stream"))],
+    )
+    assert resp.status_code == 400
+    detail = resp.json().get("detail", "")
+    assert isinstance(detail, str) and "pdf" in detail.lower()
+
+
 def test_export_excel_valid():
     from openpyxl import load_workbook
 

@@ -2,10 +2,8 @@ import io
 import os
 import asyncio
 import logging
-from functools import partial
 
 import pdfplumber
-from docx import Document
 
 logger = logging.getLogger(__name__)
 
@@ -28,31 +26,13 @@ def _extract_pdf(content: bytes) -> str:
         raise ValueError(f"Erreur extraction PDF: {e}") from e
 
 
-def _extract_docx(content: bytes) -> str:
-    """Synchronous DOCX text extraction (run via to_thread)."""
-    try:
-        doc = Document(io.BytesIO(content))
-        paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
-        return "\n".join(paragraphs)[:MAX_TEXT_LENGTH]
-    except Exception as e:
-        logger.error("DOCX extraction failed: %s", e)
-        raise ValueError(f"Erreur extraction DOCX: {e}") from e
-
-
 def _extract_txt(content: bytes) -> str:
     return content.decode("utf-8", errors="ignore")[:MAX_TEXT_LENGTH]
 
 
 async def extract_text(filename: str, content: bytes) -> str:
-    """Async text extraction — delegates sync work to a thread."""
+    """Extraction du texte depuis un PDF uniquement (délégation synchrone dans un thread)."""
     ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
-
-    if ext == "pdf":
-        return await asyncio.to_thread(_extract_pdf, content)
-    elif ext == "docx":
-        # .doc is NOT supported by python-docx, only .docx
-        return await asyncio.to_thread(_extract_docx, content)
-    elif ext == "txt":
-        return _extract_txt(content)
-    else:
-        raise ValueError(f"Format non supporté: .{ext} (acceptés: pdf, docx, txt)")
+    if ext != "pdf":
+        raise ValueError("Format non supporté : seuls les fichiers PDF (.pdf) sont acceptés.")
+    return await asyncio.to_thread(_extract_pdf, content)

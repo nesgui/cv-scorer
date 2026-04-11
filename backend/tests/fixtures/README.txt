@@ -7,4 +7,4 @@ Pour tester l'extraction PDF réelle avec des CV anonymisés :
 2. Enregistrer le fichier sous : cv_anon.pdf
 3. Lancer : pytest tests/test_extractors.py -k anon (si le test optionnel est présent)
 
-Les tests CI n'exigent pas de PDF binaire : ils utilisent des mocks ou des .txt.
+Les tests CI n'exigent pas de PDF binaire pour l'API : validation d'extension et mocks côté Claude.

@@ -131,13 +131,19 @@ async def score_stream(
     file_data = []
     max_bytes = MAX_FILE_SIZE_MB * 1024 * 1024
     for f in files:
+        name = (f.filename or "").strip()
+        if not name.lower().endswith(".pdf"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Format non accepté pour « {name or '(sans nom)'} » : seuls les fichiers PDF (.pdf) sont autorisés.",
+            )
         content = await f.read()
         if len(content) > max_bytes:
             raise HTTPException(
                 status_code=400,
                 detail=f"Fichier {f.filename} trop volumineux ({len(content) // (1024*1024)}Mo > {MAX_FILE_SIZE_MB}Mo)",
             )
-        file_data.append({"name": f.filename, "content": content})
+        file_data.append({"name": name, "content": content})
 
     async def event_generator():
         semaphore = asyncio.Semaphore(max_concurrent)

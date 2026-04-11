@@ -121,7 +121,7 @@ Utiliser le **Batch API** d'Anthropic pour -50% supplémentaire sur les gros vol
 
 - **Taille max fichier** : 50 Mo par upload (configurable dans nginx)
 - **Concurrence** : 3 CV traités en parallèle par défaut
-- **Formats supportés** : PDF, DOCX, TXT
+- **Formats supportés** : PDF uniquement
 - **Évolutions** : authentification (Keycloak/Auth0), stockage des résultats (PostgreSQL), webhook de notification, mode batch pour 1000+ CV
 
 ---
