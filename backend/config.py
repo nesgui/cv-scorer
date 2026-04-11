@@ -1,6 +1,15 @@
 import os
 import logging
 
+
+def env_int(name: str, default: int) -> int:
+    """Lit un entier depuis l'environnement ; chaîne vide ou absente = default (Docker compose peut passer '')."""
+    raw = os.getenv(name)
+    if raw is None or not str(raw).strip():
+        return default
+    return int(str(raw).strip())
+
+
 # --- Logging ---
 logging.basicConfig(
     level=logging.INFO,
@@ -17,7 +26,7 @@ ALLOWED_ORIGINS = os.getenv(
 ).split(",")
 
 # --- Rate limiting ---
-RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "10"))
+RATE_LIMIT_PER_MINUTE = env_int("RATE_LIMIT_PER_MINUTE", 10)
 
 # --- Auth ---
 API_TOKEN = os.getenv("API_TOKEN", "").strip()

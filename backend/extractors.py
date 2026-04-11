@@ -5,10 +5,12 @@ import logging
 
 import pdfplumber
 
+from config import env_int
+
 logger = logging.getLogger(__name__)
 
 # Limite de caractères extraits du CV (entrée modèle) — réduire pour économiser des tokens
-MAX_TEXT_LENGTH = int(os.getenv("CV_TEXT_MAX_CHARS", "3000"))
+MAX_TEXT_LENGTH = env_int("CV_TEXT_MAX_CHARS", 3000)
 
 
 def _extract_pdf(content: bytes) -> str:

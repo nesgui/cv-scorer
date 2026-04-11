@@ -39,7 +39,7 @@ services:
       - API_TOKEN=${API_TOKEN:-}
       - CLAUDE_TWO_PASS=${CLAUDE_TWO_PASS:-}
       - CLAUDE_PROMPT_CACHE=${CLAUDE_PROMPT_CACHE:-1}
-      - CV_TEXT_MAX_CHARS=${CV_TEXT_MAX_CHARS:-}
+      - CV_TEXT_MAX_CHARS=${CV_TEXT_MAX_CHARS:-3000}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]

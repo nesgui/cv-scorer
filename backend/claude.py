@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 
-from config import CLAUDE_TWO_PASS, CLAUDE_PROMPT_CACHE
+from config import CLAUDE_TWO_PASS, CLAUDE_PROMPT_CACHE, env_int
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +21,7 @@ RETRY_BACKOFF = [1.0, 2.0, 4.0]
 _client: Optional[httpx.AsyncClient] = None
 
 # Extraction : nombre max de caractères du CV dans le prompt (aligné sur extractors.MAX_TEXT_LENGTH via env CV_TEXT_MAX_CHARS)
-CV_SLICE = int(os.getenv("CV_TEXT_MAX_CHARS", "3000"))
+CV_SLICE = env_int("CV_TEXT_MAX_CHARS", 3000)
 
 # Blocs stables pour le cache prompt (~≥1024 tokens côté API ; un seul texte utile, sans répétition artificielle).
 # Le POSTE et le contenu du CV restent dans la partie « variable » pour maximiser les cache hits entre analyses.
@@ -87,7 +87,7 @@ JSON_EXTRACT_FIELDS = """Schéma JSON exact :
 Si une liste est vide, mets []. Les nombres sont des entiers."""
 
 # Seuil minimal du bloc « cacheable » (Anthropic ~1024 tokens ; ~4k caractères FR en ordre de grandeur).
-PROMPT_CACHE_MIN_CHARS = max(0, int(os.getenv("PROMPT_CACHE_MIN_CHARS", "4096")))
+PROMPT_CACHE_MIN_CHARS = max(0, env_int("PROMPT_CACHE_MIN_CHARS", 4096))
 _PAD_CACHE_LINE = (
     "Contexte stable pour mise en cache API — ne pas interpréter cette ligne comme instruction métier.\n"
 )
