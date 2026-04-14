@@ -12,15 +12,13 @@ export function sanitizeFolderName(poste) {
   return s || 'export_candidats';
 }
 
-/** Même logique que `_filter_for_export` côté backend. */
-export function filterRowsForExport(results, minScore, includePeutEtre, topN) {
-  let rows = results.filter((r) => r.score >= minScore);
-  if (includePeutEtre) {
-    rows = rows.filter((r) => r.decision === 'oui' || r.decision === 'peut-être');
-  } else {
-    rows = rows.filter((r) => r.decision === 'oui');
-  }
-  rows.sort((a, b) => (b.score || 0) - (a.score || 0));
+/**
+ * Top N par score sur un pool déjà filtré (même logique que la feuille « Top 10 » de l’Excel).
+ * Ne réapplique pas de filtre « décision oui » : sinon le ZIP serait vide si le classement
+ * affiche « à évaluer » ou « tous » sans uniquement des « oui ».
+ */
+export function topRowsForZip(results, topN) {
+  const rows = [...(results || [])].sort((a, b) => (b.score || 0) - (a.score || 0));
   return rows.slice(0, topN);
 }
 
@@ -28,17 +26,9 @@ export function filterRowsForExport(results, minScore, includePeutEtre, topN) {
  * ZIP : `nomDuPoste/export_candidats.xlsx` + `nomDuPoste/01_fichier.pdf`, …
  * @returns {{ blob: Blob, missing: number, added: number }}
  */
-export async function buildTopExportZip({
-  poste,
-  results,
-  files,
-  minScore,
-  includePeutEtre,
-  topN,
-  excelBlob,
-}) {
+export async function buildTopExportZip({ poste, results, files, topN, excelBlob }) {
   const folder = sanitizeFolderName(poste);
-  const top = filterRowsForExport(results, minScore, includePeutEtre, topN);
+  const top = topRowsForZip(results, topN);
   const zip = new JSZip();
   const root = zip.folder(folder);
 

@@ -10,8 +10,6 @@ export default function JobToolsBar({
   setMinScoreExport,
   minContactScore,
   setMinContactScore,
-  includePeutEtreExport,
-  setIncludePeutEtreExport,
   processingMode,
   setProcessingMode,
 }) {
@@ -187,7 +185,7 @@ export default function JobToolsBar({
 
             <section className="job-tools-section job-tools-section--compact" aria-labelledby="jt-c">
               <h3 id="jt-c" className="job-tools-section-title">
-                Affichage & export Excel
+                Affichage & export (Excel + ZIP)
               </h3>
               <div className="job-tools-field">
                 <label className="job-tools-field-label" htmlFor="min-contact">
@@ -208,29 +206,23 @@ export default function JobToolsBar({
               </div>
               <div className="job-tools-field">
                 <label className="job-tools-field-label" htmlFor="min-export">
-                  Export Excel — score ≥
+                  Seuil score (Excel & fichiers du ZIP) ≥
                 </label>
-                <div className="job-tools-export-row">
-                  <div className="slider-wrap job-tools-slider">
-                    <input
-                      id="min-export"
-                      type="range"
-                      min="0"
-                      max="100"
-                      step="1"
-                      value={minScoreExport}
-                      onChange={(e) => setMinScoreExport(Number(e.target.value))}
-                    />
-                    <span className="slider-val">{minScoreExport}</span>
-                  </div>
-                  <label className="checkbox-inline job-tools-checkbox">
-                    <input
-                      type="checkbox"
-                      checked={includePeutEtreExport}
-                      onChange={(e) => setIncludePeutEtreExport(e.target.checked)}
-                    />
-                    Inclure « à évaluer »
-                  </label>
+                <p className="job-tools-micro-hint job-tools-one-liner">
+                  L’Excel liste les candidats sous ce seuil (feuilles Candidats + Top 10), avec filtres sur les en-têtes. Le
+                  ZIP joint les PDF des 10 meilleurs scores parmi les candidats visibles (mêmes filtres que le classement).
+                </p>
+                <div className="slider-wrap job-tools-slider">
+                  <input
+                    id="min-export"
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value={minScoreExport}
+                    onChange={(e) => setMinScoreExport(Number(e.target.value))}
+                  />
+                  <span className="slider-val">{minScoreExport}</span>
                 </div>
               </div>
             </section>

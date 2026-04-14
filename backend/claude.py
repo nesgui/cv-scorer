@@ -36,7 +36,9 @@ en entier cohérent avec les dates ou mentions (« 5 ans », « depuis 2018 ») 
 marquantes, ordre chronologique ou par importance si ambigu ; (4) competences_liste : verbes d'action ou libellés courts ;
 (5) outils_ou_logiciels : noms d'outils, ERP, langages, suites bureautiques ; (6) langues avec niveau si indiqué ;
 (7) secteurs : banque, assurance, retail, public, etc. si identifiable ; (8) diplomes : dernier diplôme et certifications
-pertinentes ; (9) texte illisible ou scan raté : rester prudent, champs vides plutôt que supposition.
+pertinentes ; (9) texte illisible ou scan raté : rester prudent, champs vides plutôt que supposition ;
+(10) téléphone tel qu'affiché (pour l'indicatif pays, ex. +235) ; lieu de la dernière expérience professionnelle
+explicite (ville/pays) ; lieu du poste actuel ou en cours si le CV le mentionne — utiles pour situer le parcours géographique.
 Ce bloc est identique pour toutes les extractions : il permet la mise en cache côté API pour réduire le coût en tokens
 lorsque CLAUDE_PROMPT_CACHE est activé."""
 
@@ -48,7 +50,11 @@ Méthode : (1) lire la fiche poste comme contrainte principale ; (2) croiser ave
 pour contacts ; (3) attribuer un score 0–100 reflétant l'alignement global : missions, seniorité, outils, secteur,
 formation, soft skills, risques ; (4) decision : oui si score ≥ 75 et profil crédible ; peut-être entre 50 et 74 ; non si
 < 50 ou inadéquation forte ; (5) points_forts / points_faibles : courts, factuels, 2 à 4 items ; (6) recommandation :
-une phrase actionnable pour le recruteur ; (7) respecter le schéma JSON strict sans texte hors JSON.
+une phrase actionnable pour le recruteur ; (7) profil_geographique : t'appuyer en priorité sur des indices factuels du CV :
+numéro de téléphone (indicatif pays : ex. +235 Tchad, +33 France, +237 Cameroun), lieu de la dernière expérience
+professionnelle, lieu du poste actuel ou employeur actuel ; croiser avec nationalité ou formations si visibles ;
+national_tchad si le parcours est principalement au Tchad ; international si principalement hors Tchad ; inconnu si
+indices contradictoires ou insuffisants ; (8) respecter le schéma JSON strict sans texte hors JSON.
 Critères d'évaluation : adéquation métier et missions, expérience sectorielle et réglementaire si pertinent, diplômes
 et certifications, maîtrise des outils et SI, langues, stabilité et cohérence de parcours, communication et travail d'équipe,
 présentation du CV, mobilité géographique si mentionnée. Pénaliser l'absence d'éléments clés exigés par la fiche poste.
@@ -68,14 +74,20 @@ Schéma exact :
   "points_faibles": ["point faible 1", "point faible 2"],
   "competences_cles": ["compétence 1", "compétence 2", "compétence 3"],
   "recommandation": "Une phrase courte sur l'adéquation au poste.",
+  "profil_geographique": "national_tchad|international|inconnu",
   "decision": "oui|peut-être|non"
 }
-Score sur 100. decision: oui >= 75, peut-être 50-74, non < 50."""
+Score sur 100. decision: oui >= 75, peut-être 50-74, non < 50.
+profil_geographique : utiliser téléphone (indicatif), lieu dernière expérience pro, lieu travail actuel du CV quand présents ;
+national_tchad (surtout Tchad), international (surtout hors Tchad), inconnu si absent ou ambigu."""
 
 
 JSON_EXTRACT_FIELDS = """Schéma JSON exact :
 {
   "nom_detecte": "Prénom Nom ou chaîne vide",
+  "telephone_brut": "numéro tel tel qu'affiché sur le CV (pour indicatif pays), ou chaîne vide",
+  "lieu_derniere_experience": "ville et/ou pays de la dernière expérience professionnelle mentionnée, ou chaîne vide",
+  "lieu_travail_actuel": "ville et/ou pays du poste actuel ou en cours si mentionné, ou chaîne vide",
   "annees_experience_estime": 0,
   "diplomes": ["diplôme ou formation 1"],
   "postes_cles": ["intitulé ou entreprise marquant 1"],
@@ -406,8 +418,10 @@ Fichier : « {cv_name} »
 SYNTHÈSE FACTUELLE (JSON) :
 {facts_json}
 
-EXTRAIT BRUT DU CV (pour email/téléphone si visibles) :
+EXTRAIT BRUT DU CV (email, téléphone, lieux d'expérience si visibles) :
 {snippet}
+
+Croise la synthèse factuelle (champs telephone_brut, lieu_derniere_experience, lieu_travail_actuel) avec l'extrait pour trancher profil_geographique.
 
 Produis le JSON de scoring complet."""
         messages = [
@@ -430,8 +444,10 @@ POSTE RECHERCHÉ :
 SYNTHÈSE FACTUELLE (JSON) :
 {facts_json}
 
-EXTRAIT BRUT DU CV (pour email/téléphone si visibles) :
+EXTRAIT BRUT DU CV (email, téléphone, lieux d'expérience si visibles) :
 {snippet}
+
+Croise la synthèse factuelle (telephone_brut, lieu_derniere_experience, lieu_travail_actuel) avec l'extrait pour profil_geographique.
 
 {JSON_SCORE_FIELDS}"""
         data, usage = await _anthropic_json_round(cv_name, user_prompt=prompt, max_tokens=900, phase="score")
@@ -488,7 +504,8 @@ CV - {cv_name}:
 
 {JSON_SCORE_FIELDS}
 
-Le score est sur 100 basé sur l'adéquation au poste. decision: oui >= 75, peut-être 50-74, non < 50."""
+Le score est sur 100 basé sur l'adéquation au poste. decision: oui >= 75, peut-être 50-74, non < 50.
+Pour profil_geographique : utilise le téléphone (indicatif pays), le lieu de la dernière expérience pro et le lieu du poste actuel s'ils figurent sur le CV."""
         data, usage = await _anthropic_json_round(cv_name, user_prompt=prompt, max_tokens=800, phase="single")
     if usage:
         logger.info(

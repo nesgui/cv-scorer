@@ -1,5 +1,15 @@
 import React from 'react';
 
+function profilGeoLabel(pg) {
+  if (pg === 'mixte') return '—';
+  const m = {
+    national_tchad: 'National (Tchad)',
+    international: 'International',
+    inconnu: '—',
+  };
+  return m[pg] || m.inconnu;
+}
+
 function row(label, values) {
   return (
     <tr key={label}>
@@ -42,6 +52,10 @@ export default function ComparePanel({ items, onClose }) {
             {row(
               'Décision',
               items.map((r) => r.decision),
+            )}
+            {row(
+              'Profil géographique',
+              items.map((r) => profilGeoLabel(r.profil_geographique || 'inconnu')),
             )}
             {row(
               'Niveau',

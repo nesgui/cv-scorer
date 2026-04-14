@@ -11,9 +11,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, Response
 
 from openpyxl import Workbook
-from openpyxl.styles import Font, Alignment, Border, Side
+from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
 from openpyxl.utils import get_column_letter
-from openpyxl.worksheet.table import Table, TableStyleInfo
 
 from config import (
     ALLOWED_ORIGINS,
@@ -195,6 +194,7 @@ async def score_stream(
                         "nom": name,
                         "recommandation": "Erreur d'analyse",
                         "decision": "non",
+                        "profil_geographique": "inconnu",
                     }
                     results.append(err)
                     await output_queue.put(
@@ -246,14 +246,11 @@ async def score_stream(
     )
 
 
-def _filter_for_export(req: ExportExcelRequest) -> List[ExportItem]:
+def _rows_for_excel(req: ExportExcelRequest) -> List[ExportItem]:
+    """Candidats avec score >= min_score, toutes décisions confondues, tri décroissant."""
     rows = [r for r in req.results if r.score >= req.min_score]
-    if req.include_peut_etre:
-        rows = [r for r in rows if r.decision in ("oui", "peut-être")]
-    else:
-        rows = [r for r in rows if r.decision == "oui"]
     rows.sort(key=lambda x: x.score, reverse=True)
-    return rows[: req.top_n]
+    return rows
 
 
 def _parse_export_body(body: Any) -> ExportExcelRequest:
@@ -262,15 +259,24 @@ def _parse_export_body(body: Any) -> ExportExcelRequest:
     return ExportExcelRequest.model_validate(body)
 
 
-def _build_export_sheet(ws, top: List[ExportItem]) -> None:
-    """Remplit la feuille : en-têtes, données, tableau Excel mis en forme."""
+def _profil_geographique_label(code: str) -> str:
+    return {
+        "national_tchad": "National (Tchad)",
+        "international": "International",
+        "inconnu": "—",
+    }.get(code or "inconnu", "—")
+
+
+def _build_export_sheet(ws, rows: List[ExportItem]) -> None:
+    """Mise en forme sans Table Excel ni volets figés : le gel de la ligne 1 provoquait
+    une double en-tête visible au défilement dans plusieurs versions d’Excel."""
     headers = [
         "Rang",
         "Nom",
         "Email",
         "Téléphone",
         "Score",
-        "Décision",
+        "Profil géographique",
         "Niveau",
         "Années exp.",
         "Points forts",
@@ -280,11 +286,12 @@ def _build_export_sheet(ws, top: List[ExportItem]) -> None:
         "Fichier",
     ]
     ncols = len(headers)
-    last_col = get_column_letter(ncols)
 
-    header_font = Font(bold=True, size=11)
-    body_font = Font(size=11)
-    thin = Side(style="thin", color="CCD6E0")
+    header_font = Font(bold=True, size=11, color="111827")
+    body_font = Font(size=11, color="374151")
+    header_fill = PatternFill(fill_type="solid", fgColor="F3F4F6")
+    stripe_fill = PatternFill(fill_type="solid", fgColor="F9FAFB")
+    thin = Side(style="thin", color="E5E7EB")
     grid_border = Border(left=thin, right=thin, top=thin, bottom=thin)
     wrap = Alignment(vertical="top", wrap_text=True)
     wrap_center = Alignment(vertical="center", horizontal="center", wrap_text=True)
@@ -292,17 +299,20 @@ def _build_export_sheet(ws, top: List[ExportItem]) -> None:
     for c, h in enumerate(headers, start=1):
         cell = ws.cell(row=1, column=c, value=h)
         cell.font = header_font
+        cell.fill = header_fill
         cell.alignment = wrap_center
         cell.border = grid_border
 
-    for i, r in enumerate(top, 1):
+    center_cols = {1, 5, 6, 7, 8}  # rang, score, profil, niveau, années
+
+    for i, r in enumerate(rows, 1):
         row_vals = [
             i,
             r.nom,
             r.email or "",
             r.telephone or "",
             r.score,
-            r.decision,
+            _profil_geographique_label(r.profil_geographique),
             r.niveau,
             r.annees_experience if r.annees_experience is not None else "",
             " | ".join(r.points_forts),
@@ -315,35 +325,24 @@ def _build_export_sheet(ws, top: List[ExportItem]) -> None:
             cell = ws.cell(row=i + 1, column=c, value=val)
             cell.font = body_font
             cell.border = grid_border
-            if c in (1, 5, 6, 7, 8):  # rang, score, décision, niveau, années
-                cell.alignment = wrap_center
-            else:
-                cell.alignment = wrap
+            cell.alignment = wrap_center if c in center_cols else wrap
 
-    last_row = 1 + len(top)
-    if len(top) > 0:
-        ref = f"A1:{last_col}{last_row}"
-        tab = Table(displayName="TopCandidats", ref=ref)
-        tab.tableStyleInfo = TableStyleInfo(
-            name="TableStyleMedium9",
-            showFirstColumn=False,
-            showLastColumn=False,
-            showRowStripes=True,
-            showColumnStripes=False,
-        )
-        ws.add_table(tab)
+    last_row = 1 + len(rows)
+    # Bandes alternées
+    for row_idx in range(2, last_row + 1):
+        if (row_idx - 2) % 2 == 1:
+            for c in range(1, ncols + 1):
+                ws.cell(row=row_idx, column=c).fill = stripe_fill
 
-    ws.freeze_panes = "A2"
-    ws.sheet_view.showGridLines = True
+    ws.sheet_view.showGridLines = False
 
-    # Largeurs : lisibles sans dépasser (Excel limite ~255)
     widths = {
         "A": 8,
         "B": 28,
         "C": 32,
         "D": 16,
         "E": 9,
-        "F": 14,
+        "F": 26,
         "G": 14,
         "H": 12,
         "I": 42,
@@ -355,20 +354,29 @@ def _build_export_sheet(ws, top: List[ExportItem]) -> None:
     for col_letter, w in widths.items():
         ws.column_dimensions[col_letter].width = w
 
-    ws.row_dimensions[1].height = 36
+    ws.row_dimensions[1].height = 32
     for r in range(2, last_row + 1):
-        ws.row_dimensions[r].height = 72
+        ws.row_dimensions[r].height = 64
+
+    # Filtres automatiques sur la ligne d’en-tête (Excel)
+    last_col_letter = get_column_letter(ncols)
+    ws.auto_filter.ref = f"A1:{last_col_letter}{last_row}"
 
 
 @app.post("/api/export-excel", dependencies=[Depends(check_auth)])
 async def export_excel(body: Any = Body(...)):
-    """Export Excel : top N filtrés par score et décision."""
+    """Export Excel : feuille complète (score ≥ min) + feuille Top N (sans filtre sur la décision)."""
     req = _parse_export_body(body)
-    top = _filter_for_export(req)
+    all_rows = _rows_for_excel(req)
+    top_rows = all_rows[: req.top_n]
+
     wb = Workbook()
-    ws = wb.active
-    ws.title = "Export candidats"
-    _build_export_sheet(ws, top)
+    ws_all = wb.active
+    ws_all.title = "Candidats"
+    _build_export_sheet(ws_all, all_rows)
+
+    ws_top = wb.create_sheet("Top 10")
+    _build_export_sheet(ws_top, top_rows)
 
     buf = io.BytesIO()
     wb.save(buf)

@@ -35,6 +35,15 @@ function decisionBadge(decision) {
   return map[decision] || map['non'];
 }
 
+function profilGeoShort(pg) {
+  if (pg === 'mixte') return null;
+  const m = {
+    national_tchad: 'National (Tchad)',
+    international: 'International',
+  };
+  return m[pg] || null;
+}
+
 export default function ResultCard({
   result,
   rank,
@@ -47,6 +56,7 @@ export default function ResultCard({
   const av = AVATAR_COLORS[rank % AVATAR_COLORS.length];
   const sc = scoreClass(result.score || 0);
   const dec = decisionBadge(result.decision);
+  const geoShort = profilGeoShort(result.profil_geographique || 'inconnu');
   const priority =
     (result.score || 0) >= minContactScore && result.decision !== 'oui';
 
@@ -79,6 +89,11 @@ export default function ResultCard({
           <span className="badge" style={{ background: dec.bg, color: dec.fg }}>
             {dec.label}
           </span>
+          {geoShort && (
+            <span className="badge badge-geo" title="Profil géographique déduit du CV">
+              {geoShort}
+            </span>
+          )}
           {priority && (
             <span className="badge badge-priority" title="Score au-dessus du seuil RH réglé dans les options">
               Priorité score

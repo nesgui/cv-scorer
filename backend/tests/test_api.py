@@ -66,6 +66,7 @@ def test_export_excel_valid():
             "telephone": "+33 6 12 34 56 78",
             "score": 85,
             "decision": "oui",
+            "profil_geographique": "national_tchad",
             "niveau": "senior",
             "annees_experience": 10,
             "points_forts": ["Python", "Leadership"],
@@ -82,10 +83,14 @@ def test_export_excel_valid():
     assert resp.status_code == 200
     assert "spreadsheetml" in resp.headers["content-type"]
     wb = load_workbook(io.BytesIO(resp.content))
-    ws = wb.active
+    assert wb.sheetnames == ["Candidats", "Top 10"]
+    ws = wb["Candidats"]
     assert ws["A2"].value == 1
     assert ws["B2"].value == "Jean Dupont"
     assert ws["C2"].value == "jean@example.com"
+    assert ws["E2"].value == 85
+    assert ws["F2"].value == "National (Tchad)"
+    assert wb["Top 10"]["B2"].value == "Jean Dupont"
 
 
 def test_export_excel_empty():
@@ -127,7 +132,7 @@ def test_export_excel_min_score_filters():
     )
     assert resp.status_code == 200
     wb = load_workbook(io.BytesIO(resp.content))
-    ws = wb.active
+    ws = wb["Candidats"]
     assert ws.max_row == 2
 
 

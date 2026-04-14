@@ -39,6 +39,26 @@ function sortResults(arr) {
   return [...arr].sort((a, b) => (b.score || 0) - (a.score || 0));
 }
 
+/** Profil géo affiché côté API (ancienne valeur « mixte » → non classé). */
+function normalizeProfilGeo(pg) {
+  if (pg === 'mixte') return 'inconnu';
+  return pg || 'inconnu';
+}
+
+/** Filtre classement / export : score minimal, profil géographique, décision RH. */
+function applyResultFilters(results, scoreFloor, geoFilter, decisionFilter) {
+  return results.filter((r) => {
+    if (r.score < scoreFloor) return false;
+    const pg = normalizeProfilGeo(r.profil_geographique);
+    if (geoFilter === 'national_tchad' && pg !== 'national_tchad') return false;
+    if (geoFilter === 'international' && pg !== 'international') return false;
+    if (decisionFilter === 'oui') return r.decision === 'oui';
+    if (decisionFilter === 'peut-être') return r.decision === 'peut-être';
+    if (decisionFilter === 'non') return r.decision === 'non';
+    return true;
+  });
+}
+
 /** FastAPI renvoie parfois `detail` en chaîne ou en tableau (validation 422). */
 function formatApiErrorDetail(detail) {
   if (detail == null) return 'Erreur inconnue';
@@ -92,10 +112,10 @@ export default function App() {
   const [progressText, setProgressText] = useState('');
   const [phase, setPhase] = useState('idle');
   const [filter, setFilter] = useState('tous');
+  const [geoFilter, setGeoFilter] = useState('tous');
   const [scoreMin, setScoreMin] = useState(0);
-  const [minScoreExport, setMinScoreExport] = useState(75);
+  const [minScoreExport, setMinScoreExport] = useState(0);
   const [minContactScore, setMinContactScore] = useState(70);
-  const [includePeutEtreExport, setIncludePeutEtreExport] = useState(false);
   const [processingMode, setProcessingMode] = useState('parallel');
   const [compareFiles, setCompareFiles] = useState([]);
   const [billingAlert, setBillingAlert] = useState(null);
@@ -302,9 +322,8 @@ export default function App() {
   const exportExcel = async () => {
     try {
       const payload = {
-        results,
-        min_score: minScoreExport,
-        include_peut_etre: includePeutEtreExport,
+        results: resultsForExport,
+        min_score: 0,
         top_n: 10,
       };
       const resp = await fetch(`${API_BASE}/api/export-excel`, {
@@ -320,10 +339,8 @@ export default function App() {
       const safeName = sanitizeFolderName(poste);
       const { blob: zipBlob, missing, added, count } = await buildTopExportZip({
         poste,
-        results,
+        results: resultsForExport,
         files,
-        minScore: minScoreExport,
-        includePeutEtre: includePeutEtreExport,
         topN: 10,
         excelBlob,
       });
@@ -339,29 +356,30 @@ export default function App() {
           'info',
         );
       } else if (count === 0) {
-        addToast('Archive créée avec le classement Excel (aucune ligne ne correspond aux filtres).', 'info');
+        addToast('Téléchargement terminé.', 'info');
       }
     } catch (e) {
       addToast(`Export échoué: ${e.message}`);
     }
   };
 
-  const filtered = useMemo(() => {
-    return results.filter((r) => {
-      if (r.score < scoreMin) return false;
-      if (filter === 'oui') return r.decision === 'oui';
-      if (filter === 'peut-être') return r.decision === 'peut-être';
-      if (filter === 'non') return r.decision === 'non';
-      return true;
-    });
-  }, [results, filter, scoreMin]);
+  const filtered = useMemo(
+    () => applyResultFilters(results, scoreMin, geoFilter, filter),
+    [results, scoreMin, geoFilter, filter],
+  );
+
+  /** Même logique que le classement, avec le seuil « Options & outils » pour l’export. */
+  const resultsForExport = useMemo(
+    () => applyResultFilters(results, minScoreExport, geoFilter, filter),
+    [results, minScoreExport, geoFilter, filter],
+  );
 
   const rankingTotalPages = Math.max(1, Math.ceil(filtered.length / rankingPageSize) || 1);
   const rankingPageSafe = Math.min(rankingPage, rankingTotalPages);
 
   useEffect(() => {
     setRankingPage(1);
-  }, [filter, scoreMin, rankingPageSize]);
+  }, [filter, geoFilter, scoreMin, rankingPageSize]);
 
   useEffect(() => {
     setRankingPage((p) => Math.min(p, rankingTotalPages));
@@ -377,13 +395,7 @@ export default function App() {
 
   useEffect(() => {
     resultsListScrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-  }, [rankingPageSafe, rankingPageSize, filter]);
-
-  const exportMatchCount = results.filter(
-    (r) =>
-      r.score >= minScoreExport &&
-      (r.decision === 'oui' || (includePeutEtreExport && r.decision === 'peut-être')),
-  ).length;
+  }, [rankingPageSafe, rankingPageSize, filter, geoFilter]);
 
   const showFileCollapse = files.length > FILE_LIST_COLLAPSE_AT;
   const filesToShow = showFileCollapse && !filesListOpen ? [] : files;
@@ -438,8 +450,6 @@ export default function App() {
             setMinScoreExport={setMinScoreExport}
             minContactScore={minContactScore}
             setMinContactScore={setMinContactScore}
-            includePeutEtreExport={includePeutEtreExport}
-            setIncludePeutEtreExport={setIncludePeutEtreExport}
             processingMode={processingMode}
             setProcessingMode={setProcessingMode}
           />
@@ -578,6 +588,11 @@ export default function App() {
                       <option value="peut-être">À évaluer</option>
                       <option value="non">Non retenus</option>
                     </select>
+                    <select className="select" value={geoFilter} onChange={(e) => setGeoFilter(e.target.value)}>
+                      <option value="tous">Profil géographique : tous</option>
+                      <option value="national_tchad">National (Tchad)</option>
+                      <option value="international">International</option>
+                    </select>
                     <select className="select" value={scoreMin} onChange={(e) => setScoreMin(Number(e.target.value))}>
                       <option value={0}>Score ≥ 0</option>
                       <option value={50}>Score ≥ 50</option>
@@ -658,15 +673,10 @@ export default function App() {
                       type="button"
                       className="btn-export"
                       onClick={exportExcel}
-                      title="Filtres : score min. et option « à évaluer » (barre d’outils)"
+                      title="Export selon les filtres du classement (profil géographique, décision) et le seuil de score des options. Excel : liste + Top 10. ZIP : jusqu’à 10 CV selon la décision (options)."
                     >
-                      Enregistrer le top 10 (ZIP)
+                      Télécharger
                     </button>
-                    <span className="export-hint">
-                      {exportMatchCount === 0
-                        ? `Aucune ligne ne correspond (score ≥ ${minScoreExport}${includePeutEtreExport ? ', oui ou à évaluer' : ', décision oui'}).`
-                        : `ZIP : dossier « ${sanitizeFolderName(poste)} » avec export_candidats.xlsx et jusqu’à ${Math.min(exportMatchCount, 10)} CV · score ≥ ${minScoreExport}${includePeutEtreExport ? ' · oui ou à évaluer' : ' · oui uniquement'}`}
-                    </span>
                   </div>
                 )}
               </>

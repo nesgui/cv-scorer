@@ -492,6 +492,7 @@ button:hover { opacity: 0.88; }
 }
 .results-filter-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
 }
@@ -1326,6 +1327,12 @@ button:hover { opacity: 0.88; }
 }
 .compare-check input {
   cursor: pointer;
+}
+.badge-geo {
+  background: #f3f4f6 !important;
+  color: #374151 !important;
+  font-size: 10px !important;
+  font-weight: 500;
 }
 .badge-priority {
   background: #fff4e6 !important;
