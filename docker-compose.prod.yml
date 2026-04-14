@@ -58,6 +58,13 @@ services:
       - "traefik.http.routers.api-http.entrypoints=web"
       - "traefik.http.routers.api-http.middlewares=redirect-to-https"
       - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+      - "traefik.http.routers.health.rule=Host(`${DOMAIN}`) && Path(`/health`)"
+      - "traefik.http.routers.health.entrypoints=websecure"
+      - "traefik.http.routers.health.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.health.service=api"
+      - "traefik.http.routers.health-http.rule=Host(`${DOMAIN}`) && Path(`/health`)"
+      - "traefik.http.routers.health-http.entrypoints=web"
+      - "traefik.http.routers.health-http.middlewares=redirect-to-https"
     deploy:
       resources:
         limits:
