@@ -1,4 +1,4 @@
-"""Messages utilisateur pour erreurs d'analyse (ex. crédits API)."""
+"""Messages utilisateur pour erreurs d’analyse (ex. crédits API)."""
 from typing import Optional, Tuple
 
 _MSG_CREDITS = (
@@ -6,11 +6,15 @@ _MSG_CREDITS = (
     "Rechargez le compte sur https://console.anthropic.com ou contactez l’administrateur de l’application."
 )
 
+_MSG_GENERIC = (
+    "L’analyse de ce fichier a échoué. Vérifiez que le fichier est un CV en PDF lisible et réessayez."
+)
+
 
 def scoring_error_for_user(exc: BaseException) -> Tuple[Optional[str], str]:
     """
     Retourne (code, message) avec code non None pour les cas connus (ex. crédits).
-    Sinon message = str(exc) pour affichage brut.
+    Pour les erreurs inconnues, retourne un message générique sans exposer les détails internes.
     """
     raw = str(exc).strip()
     low = raw.lower()
@@ -27,4 +31,4 @@ def scoring_error_for_user(exc: BaseException) -> Tuple[Optional[str], str]:
     )
     if any(m in low for m in markers):
         return ("insufficient_credits", _MSG_CREDITS)
-    return (None, raw)
+    return (None, _MSG_GENERIC)

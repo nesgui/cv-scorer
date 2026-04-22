@@ -5,6 +5,7 @@ const statusDotStyle = {
   running: { bg: '#B3D4E8', animation: 'pulse 1s infinite' },
   done: { bg: '#7EB8D8' },
   error: { bg: '#F5B5BA' },
+  excluded: { bg: '#FCD34D' },
 };
 
 export default function FileItem({ file, status, onRemove }) {
@@ -23,6 +24,7 @@ export default function FileItem({ file, status, onRemove }) {
       <div
         className="status-dot"
         style={{ background: dot.bg, animation: dot.animation || 'none' }}
+        title={status === 'excluded' ? 'Document ignoré (non-CV)' : undefined}
       />
       {status === 'wait' && (
         <button className="remove-btn" onClick={() => onRemove(file.name)}>

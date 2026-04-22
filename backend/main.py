@@ -1,6 +1,7 @@
 import asyncio
 import io
 import json
+import re
 import time
 import logging
 from typing import Any, List, Optional
@@ -131,10 +132,11 @@ async def score_stream(
     max_bytes = MAX_FILE_SIZE_MB * 1024 * 1024
     for f in files:
         name = (f.filename or "").strip()
-        if not name.lower().endswith(".pdf"):
+        ext = name.lower().rsplit(".", 1)[-1] if "." in name else ""
+        if ext not in ("pdf", "docx"):
             raise HTTPException(
                 status_code=400,
-                detail=f"Format non accepté pour « {name or '(sans nom)'} » : seuls les fichiers PDF (.pdf) sont autorisés.",
+                detail=f"Format non accepté pour « {name or '(sans nom)'} » : seuls les fichiers PDF (.pdf) et Word (.docx) sont autorisés.",
             )
         content = await f.read()
         if len(content) > max_bytes:
@@ -147,11 +149,13 @@ async def score_stream(
     async def event_generator():
         semaphore = asyncio.Semaphore(max_concurrent)
         results = []
+        excluded_count = 0
         total = len(file_data)
         output_queue: asyncio.Queue = asyncio.Queue()
         runner: Optional[asyncio.Task] = None
 
         async def process_one(idx: int, fd: dict):
+            nonlocal excluded_count
             async with semaphore:
                 name = fd["name"]
                 await output_queue.put(
@@ -159,16 +163,17 @@ async def score_stream(
                 )
                 try:
                     t0 = time.perf_counter()
-                    text = await extract_text(name, fd["content"])
+                    text, images_b64 = await extract_text(name, fd["content"])
                     extract_ms = (time.perf_counter() - t0) * 1000
                     logger.info(
-                        "pipeline_metric event=extract_ok cv=%s extract_ms=%.1f text_chars=%d",
+                        "pipeline_metric event=extract_ok cv=%s extract_ms=%.1f text_chars=%d images=%d",
                         name,
                         extract_ms,
                         len(text or ""),
+                        len(images_b64),
                     )
                     t1 = time.perf_counter()
-                    result = await call_claude(text, name, poste)
+                    result = await call_claude(text, name, poste, images_b64=images_b64)
                     claude_ms = (time.perf_counter() - t1) * 1000
                     logger.info(
                         "pipeline_metric event=claude_ok cv=%s claude_ms=%.1f two_pass=%s",
@@ -178,6 +183,14 @@ async def score_stream(
                     )
                     result["_file"] = name
                     result["_index"] = idx
+                    logger.info(
+                        "result_fields cv=%s nom=%r email=%r telephone=%r score=%s",
+                        name,
+                        result.get("nom"),
+                        result.get("email"),
+                        result.get("telephone"),
+                        result.get("score"),
+                    )
                     results.append(result)
                     await output_queue.put(
                         f"data: {json.dumps({'type':'result','index':idx,'name':name,'data':result})}\n\n"
@@ -220,7 +233,7 @@ async def score_stream(
             await runner
 
             sorted_results = sorted(results, key=lambda x: x.get("score", 0), reverse=True)
-            yield f"data: {json.dumps({'type':'complete','results':sorted_results})}\n\n"
+            yield f"data: {json.dumps({'type':'complete','results':sorted_results,'excluded_count':excluded_count})}\n\n"
         except asyncio.CancelledError:
             if runner and not runner.done():
                 runner.cancel()
@@ -257,6 +270,16 @@ def _parse_export_body(body: Any) -> ExportExcelRequest:
     if isinstance(body, list):
         return ExportExcelRequest(results=[ExportItem.model_validate(x) for x in body])
     return ExportExcelRequest.model_validate(body)
+
+
+_ILLEGAL_XML_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def _xl_safe(v: object) -> object:
+    """Retire les caractères de contrôle illégaux en XML 1.0 pour éviter IllegalCharacterError."""
+    if isinstance(v, str):
+        return _ILLEGAL_XML_RE.sub("", v)
+    return v
 
 
 def _profil_geographique_label(code: str) -> str:
@@ -308,18 +331,18 @@ def _build_export_sheet(ws, rows: List[ExportItem]) -> None:
     for i, r in enumerate(rows, 1):
         row_vals = [
             i,
-            r.nom,
-            r.email or "",
-            r.telephone or "",
+            _xl_safe(r.nom),
+            _xl_safe(r.email or ""),
+            _xl_safe(r.telephone or ""),
             r.score,
-            _profil_geographique_label(r.profil_geographique),
-            r.niveau,
+            _xl_safe(_profil_geographique_label(r.profil_geographique)),
+            _xl_safe(r.niveau),
             r.annees_experience if r.annees_experience is not None else "",
-            " | ".join(r.points_forts),
-            " | ".join(r.points_faibles),
-            " | ".join(r.competences_cles),
-            r.recommandation,
-            r.file,
+            _xl_safe(" | ".join(r.points_forts)),
+            _xl_safe(" | ".join(r.points_faibles)),
+            _xl_safe(" | ".join(r.competences_cles)),
+            _xl_safe(r.recommandation),
+            _xl_safe(r.file),
         ]
         for c, val in enumerate(row_vals, start=1):
             cell = ws.cell(row=i + 1, column=c, value=val)
@@ -366,7 +389,12 @@ def _build_export_sheet(ws, rows: List[ExportItem]) -> None:
 @app.post("/api/export-excel", dependencies=[Depends(check_auth)])
 async def export_excel(body: Any = Body(...)):
     """Export Excel : feuille complète (score ≥ min) + feuille Top N (sans filtre sur la décision)."""
-    req = _parse_export_body(body)
+    try:
+        req = _parse_export_body(body)
+    except Exception as e:
+        logger.error("export_excel: échec de validation du corps — %s", e, exc_info=True)
+        raise HTTPException(status_code=422, detail=f"Données invalides : {e}")
+
     all_rows = _rows_for_excel(req)
     top_rows = all_rows[: req.top_n]
 
@@ -379,7 +407,11 @@ async def export_excel(body: Any = Body(...)):
     _build_export_sheet(ws_top, top_rows)
 
     buf = io.BytesIO()
-    wb.save(buf)
+    try:
+        wb.save(buf)
+    except Exception as e:
+        logger.error("export_excel: échec génération Excel — %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Erreur lors de la génération du fichier Excel.")
     buf.seek(0)
     return Response(
         content=buf.getvalue(),

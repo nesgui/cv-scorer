@@ -1,5 +1,5 @@
-from pydantic import BaseModel, Field, field_validator
-from typing import List, Optional
+from pydantic import BaseModel, Field, field_validator, model_validator
+from typing import Any, List, Optional
 
 _PROFIL_GEO = frozenset({"national_tchad", "international", "inconnu"})
 
@@ -50,6 +50,31 @@ class ExportItem(BaseModel):
     competences_cles: List[str] = Field(default_factory=list)
     recommandation: str = ""
     file: str = Field("", alias="_file")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_claude_output(cls, data: Any) -> Any:
+        """Tolère les valeurs imprécises que Claude peut retourner (float pour int, null pour str, etc.)."""
+        if not isinstance(data, dict):
+            return data
+        # annees_experience et score peuvent être des floats (ex: 0.4, 5.0)
+        for field in ("annees_experience", "score"):
+            v = data.get(field)
+            if v is not None:
+                try:
+                    data[field] = int(round(float(v)))
+                except (TypeError, ValueError):
+                    data[field] = 0 if field == "score" else None
+        # Les champs str ne doivent pas être null
+        for field in ("nom", "decision", "niveau", "recommandation"):
+            if data.get(field) is None:
+                data[field] = ""
+        # Les listes ne doivent pas être null
+        for field in ("points_forts", "points_faibles", "competences_cles"):
+            v = data.get(field)
+            if not isinstance(v, list):
+                data[field] = []
+        return data
 
     @field_validator("profil_geographique", mode="before")
     @classmethod
