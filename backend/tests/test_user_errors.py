@@ -12,4 +12,4 @@ def test_scoring_error_insufficient_credits_anthropic_message():
 def test_scoring_error_generic():
     code, msg = scoring_error_for_user(RuntimeError("Something broke"))
     assert code is None
-    assert msg == "Something broke"
+    assert "PDF lisible" in msg

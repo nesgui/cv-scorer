@@ -3,7 +3,7 @@ import re
 import json
 import asyncio
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Sequence
 
 import httpx
 
@@ -63,10 +63,11 @@ Ce bloc est réutilisable pour toutes les analyses : la fiche poste et le CV son
 JSON_SCORE_FIELDS = """Réponds UNIQUEMENT en JSON valide, sans markdown, sans texte hors JSON.
 Schéma exact :
 {
+  "document_type": "cv",
   "score": 82,
-  "nom": "Prénom Nom (extrait du CV, ou nom du fichier si non trouvé)",
-  "email": "email@exemple.com ou null",
-  "telephone": "+33 6 xx xx xx ou null",
+  "nom": "Prénom Nom — chercher dans : bloc contact du CV, en-tête de lettre (expéditeur), signature de fin de lettre (ex. 'Cordialement, Prénom NOM', 'Veuillez agréer... Prénom NOM'), ou nom du fichier en dernier recours",
+  "email": "email@exemple.com ou null — chercher aussi dans l'en-tête et la signature de lettre",
+  "telephone": "+33 6 xx xx xx ou null — chercher aussi dans l'en-tête et la signature de lettre",
   "niveau": "junior|confirmé|senior|expert",
   "annees_experience": 5,
   "postes_occupes": ["Intitulé de poste | Entreprise | Période", "Intitulé 2 | Entreprise 2 | Période 2"],
@@ -78,6 +79,7 @@ Schéma exact :
   "profil_geographique": "national_tchad|international|inconnu",
   "decision": "oui|peut-être|non"
 }
+document_type : "cv" si le document contient un curriculum vitae ou résumé professionnel, même accompagné d'une lettre de motivation ou d'autres éléments (dossier de candidature complet) — dans ce cas, extraire et scorer uniquement la partie CV ; "autre" UNIQUEMENT si le document ne contient aucun élément de CV (ex : attestation seule, diplôme seul, certificat de travail seul, note de mutation, fiche de paie) — si le texte est vide ou illisible, garder "cv".
 Score sur 100. decision: oui >= 75, peut-être 50-74, non < 50.
 postes_occupes : liste des expériences professionnelles, chaque entrée au format "Intitulé de poste | Entreprise | Période" (ex. "Directeur Financier | Banque Sahel | 2019-2023"). Si l'un des éléments est absent du CV, omettre la partie manquante. Ordre chronologique inverse.
 diplomes : liste des diplômes, formations initiales et certifications du candidat.
@@ -87,7 +89,8 @@ national_tchad (surtout Tchad), international (surtout hors Tchad), inconnu si a
 
 JSON_EXTRACT_FIELDS = """Schéma JSON exact :
 {
-  "nom_detecte": "Prénom Nom ou chaîne vide",
+  "document_type": "cv",
+  "nom_detecte": "Prénom Nom — chercher dans : bloc contact du CV, en-tête de lettre (expéditeur), signature de fin (ex. 'Cordialement, Prénom NOM') ; chaîne vide si vraiment absent",
   "telephone_brut": "numéro tel tel qu'affiché sur le CV (pour indicatif pays), ou chaîne vide",
   "lieu_derniere_experience": "ville et/ou pays de la dernière expérience professionnelle mentionnée, ou chaîne vide",
   "lieu_travail_actuel": "ville et/ou pays du poste actuel ou en cours si mentionné, ou chaîne vide",
@@ -99,6 +102,7 @@ JSON_EXTRACT_FIELDS = """Schéma JSON exact :
   "langues": ["langue niveau"],
   "secteurs": ["secteur si identifiable"]
 }
+document_type : "cv" si le document contient un curriculum vitae ou résumé professionnel, même accompagné d'une lettre de motivation ou d'autres éléments (dossier de candidature complet) — dans ce cas, extraire uniquement les informations de la partie CV ; "autre" UNIQUEMENT si le document ne contient aucun élément de CV (ex : attestation seule, diplôme seul, certificat de travail seul, note de mutation, fiche de paie) — si le texte est vide ou illisible, garder "cv".
 Si une liste est vide, mets []. Les nombres sont des entiers."""
 
 # Seuil minimal du bloc « cacheable » (Anthropic ~1024 tokens ; ~4k caractères FR en ordre de grandeur).
@@ -130,6 +134,49 @@ async def close_client() -> None:
     if _client and not _client.is_closed:
         await _client.aclose()
         _client = None
+
+
+async def extract_text_via_vision(images_b64: Sequence[str], cv_name: str) -> str:
+    """Envoie les images du PDF à Claude Vision pour extraire le texte brut."""
+    if not images_b64:
+        return ""
+    client = await get_client()
+    content = []
+    for img in images_b64:
+        content.append({
+            "type": "image",
+            "source": {"type": "base64", "media_type": "image/jpeg", "data": img},
+        })
+    content.append({
+        "type": "text",
+        "text": (
+            "Extrais intégralement tout le texte visible dans ces images de document "
+            "(CV, lettre, formulaire). Retourne uniquement le texte brut, "
+            "en préservant la structure (sections, listes, tableaux). "
+            "Ne résume pas, ne commente pas, ne traduis pas."
+        ),
+    })
+    payload = {
+        "model": MODEL,
+        "max_tokens": 2000,
+        "messages": [{"role": "user", "content": content}],
+    }
+    headers = {
+        "x-api-key": ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+    }
+    try:
+        resp = await client.post(ANTHROPIC_URL, json=payload, headers=headers)
+        resp.raise_for_status()
+        data = resp.json()
+        blocks = data.get("content", [])
+        text = " ".join(b.get("text", "") for b in blocks if b.get("type") == "text").strip()
+        logger.info("Vision extraction ok pour %s : %d chars", cv_name, len(text))
+        return text[:3000]
+    except Exception as e:
+        logger.error("Vision extraction failed pour %s : %s", cv_name, e)
+        return ""
 
 
 def _anthropic_error_message(response: httpx.Response) -> Optional[str]:
@@ -350,10 +397,27 @@ async def _anthropic_json_round(
     raise last_error or RuntimeError(f"Échec Claude pour {cv_name} [{phase}]")
 
 
+_DATE_PREFIX = re.compile(r"^\d{6,8}[_\-\s]+")
+_NOISE_PREFIXES = re.compile(
+    r"^(cv|curriculum vitae|lettre de motivation|lm|candidature|dossier de candidature)\s+",
+    re.IGNORECASE,
+)
+
+
+def _name_hint_from_filename(cv_name: str) -> str:
+    """Extrait un candidat probable depuis le nom de fichier (supprime date, extension, préfixes communs)."""
+    stem = cv_name.rsplit(".", 1)[0] if "." in cv_name else cv_name
+    stem = _DATE_PREFIX.sub("", stem).strip()
+    stem = _NOISE_PREFIXES.sub("", stem).strip()
+    return stem
+
+
 async def call_claude_extract_facts(cv_text: str, cv_name: str) -> dict:
     cv_text = (cv_text or "").replace("\x00", "").strip()
-    if not cv_text:
-        cv_text = "(aucun texte extrait du fichier)"
+    text_empty = not cv_text
+    if text_empty:
+        hint = _name_hint_from_filename(cv_name)
+        cv_text = f"(aucun texte extrait du fichier — nom probable du candidat d'après le nom de fichier : {hint!r})"
     body_cv = cv_text[:CV_SLICE]
 
     if CLAUDE_PROMPT_CACHE:
@@ -467,7 +531,8 @@ Croise la synthèse factuelle (telephone_brut, lieu_derniere_experience, lieu_tr
 async def call_claude_single_pass(cv_text: str, cv_name: str, poste: str) -> dict:
     cv_text = (cv_text or "").replace("\x00", "").strip()
     if not cv_text:
-        cv_text = "(aucun texte extrait du fichier)"
+        hint = _name_hint_from_filename(cv_name)
+        cv_text = f"(aucun texte extrait du fichier — nom probable du candidat d'après le nom de fichier : {hint!r})"
     body_cv = cv_text[:CV_SLICE]
 
     if CLAUDE_PROMPT_CACHE:
@@ -520,8 +585,16 @@ Pour profil_geographique : utilise le téléphone (indicatif pays), le lieu de l
     return data
 
 
-async def call_claude(cv_text: str, cv_name: str, poste: str) -> dict:
-    """Extraction + scoring en deux passes si CLAUDE_TWO_PASS, sinon une passe."""
+async def call_claude(cv_text: str, cv_name: str, poste: str, images_b64: Sequence[str] = ()) -> dict:
+    """Extraction + scoring. Si le texte est vide mais des images sont disponibles,
+    Claude Vision extrait d'abord le texte avant l'analyse."""
+    if images_b64 and len((cv_text or "").strip()) < 80:
+        logger.info("Texte insuffisant pour %s, extraction via Claude Vision", cv_name)
+        cv_text = await extract_text_via_vision(images_b64, cv_name)
+        if not cv_text.strip():
+            hint = _name_hint_from_filename(cv_name)
+            cv_text = f"(document illisible — nom probable : {hint!r})"
+
     if CLAUDE_TWO_PASS:
         facts = await call_claude_extract_facts(cv_text, cv_name)
         result = await call_claude_score_from_facts(facts, cv_name, poste, cv_text)

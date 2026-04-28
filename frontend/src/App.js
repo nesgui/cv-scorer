@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+﻿import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useDropzone } from 'react-dropzone';
 import FileItem from './components/FileItem';
 import ResultCard from './components/ResultCard';
@@ -158,6 +158,7 @@ export default function App() {
     onDrop,
     accept: {
       'application/pdf': ['.pdf'],
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
     },
     multiple: true,
   });
@@ -186,11 +187,11 @@ export default function App() {
   const startAnalysis = async () => {
     const posteTrim = poste.trim();
     if (!posteTrim) {
-      addToast('Renseignez la description du poste : sans ce texte, l’IA ne peut pas évaluer l’adéquation des CV.', 'info');
+      addToast("Renseignez la description du poste : sans ce texte, l'IA ne peut pas évaluer l'adéquation des CV.", 'info');
       return;
     }
     if (files.length === 0) {
-      addToast('Ajoutez au moins un fichier CV avant de lancer l’analyse.', 'info');
+      addToast("Ajoutez au moins un fichier CV avant de lancer l'analyse.", 'info');
       return;
     }
     setPhase('running');
@@ -260,6 +261,10 @@ export default function App() {
               setStatuses((prev) => ({ ...prev, [msg.name]: 'done' }));
               setProgress(Math.round((processed / files.length) * 100));
               setResults((prev) => sortResults([...prev, msg.data]));
+            } else if (msg.type === 'excluded') {
+              processed++;
+              setStatuses((prev) => ({ ...prev, [msg.name]: 'excluded' }));
+              setProgress(Math.round((processed / files.length) * 100));
             } else if (msg.type === 'error') {
               processed++;
               setStatuses((prev) => ({ ...prev, [msg.name]: 'error' }));
@@ -267,7 +272,7 @@ export default function App() {
               if (msg.error_code === 'insufficient_credits') {
                 setBillingAlert(
                   msg.error ||
-                    'Les crédits API Anthropic sont insuffisants. Contactez l’administrateur.',
+                    "Les crédits API Anthropic sont insuffisants. Contactez l'administrateur.",
                 );
               }
               setResults((prev) => sortResults([...prev, buildErrorResult(msg)]));
@@ -275,7 +280,7 @@ export default function App() {
               gotComplete = true;
               addToast(
                 msg.error ||
-                  'L’analyse a été interrompue par une erreur serveur. Réessayez avec moins de fichiers ou vérifiez les ressources du serveur.',
+                  "L'analyse a été interrompue par une erreur serveur. Réessayez avec moins de fichiers ou vérifiez les ressources du serveur.",
               );
               setPhase(processed > 0 ? 'done' : 'idle');
               setProgressText('Analyse interrompue');
@@ -286,6 +291,12 @@ export default function App() {
               setProgressText('Analyse terminée');
               setProgress(100);
               pushHistorySession({ poste, results: msg.results });
+              if (msg.excluded_count > 0) {
+                addToast(
+                  `${msg.excluded_count} fichier${msg.excluded_count > 1 ? 's' : ''} ignoré${msg.excluded_count > 1 ? 's' : ''} : document non reconnu comme CV (lettre de motivation, attestation, etc.).`,
+                  'info',
+                );
+              }
             }
           } catch (_) {}
         }
@@ -293,7 +304,7 @@ export default function App() {
 
       if (streamStarted && !gotComplete) {
         addToast(
-          'La connexion au serveur a été coupée avant la fin de l’analyse (souvent : mémoire insuffisante du serveur, timeout ou redémarrage). Réessayez avec moins de CV en parallèle ou augmentez la mémoire du conteneur « backend ».',
+          "La connexion au serveur a été coupée avant la fin de l'analyse (souvent : mémoire insuffisante du serveur, timeout ou redémarrage). Réessayez avec moins de CV en parallèle ou augmentez la mémoire du conteneur « backend ».",
         );
         setPhase(processed > 0 ? 'done' : 'idle');
         setProgressText('Analyse interrompue');
@@ -302,7 +313,7 @@ export default function App() {
       if (e.name !== 'AbortError') {
         if (streamStarted) {
           addToast(
-            `Connexion interrompue pendant l’analyse : ${e.message}. Si le problème persiste, réduisez le nombre de fichiers ou le parallélisme.`,
+            `Connexion interrompue pendant l'analyse : ${e.message}. Si le problème persiste, réduisez le nombre de fichiers ou le parallélisme.`,
           );
           setPhase(processed > 0 ? 'done' : 'idle');
           setProgressText('Analyse interrompue');
@@ -322,7 +333,7 @@ export default function App() {
   const exportExcel = async () => {
     try {
       const payload = {
-        results: resultsForExport,
+        results: results,
         min_score: 0,
         top_n: 10,
       };
@@ -368,7 +379,7 @@ export default function App() {
     [results, scoreMin, geoFilter, filter],
   );
 
-  /** Même logique que le classement, avec le seuil « Options & outils » pour l’export. */
+  /** Même logique que le classement, avec le seuil « Options & outils » pour l'export. */
   const resultsForExport = useMemo(
     () => applyResultFilters(results, minScoreExport, geoFilter, filter),
     [results, minScoreExport, geoFilter, filter],
@@ -437,7 +448,7 @@ export default function App() {
           />
           {files.length > 0 && !poste.trim() && (
             <p id="poste-required-hint" className="poste-required-hint" role="status">
-              Décrivez le poste recherché : ce champ est obligatoire pour lancer l’analyse (l’outil compare les CV à cette
+              Décrivez le poste recherché : ce champ est obligatoire pour lancer l'analyse (l'outil compare les CV à cette
               fiche).
             </p>
           )}
@@ -556,7 +567,7 @@ export default function App() {
             {results.length === 0 && phase === 'running' && (
               <div className="results-live-placeholder">
                 <div className="live-dot" />
-                Analyse en cours — les profils apparaissent au fil de l’eau…
+                Analyse en cours — les profils apparaissent au fil de l'eau…
               </div>
             )}
 
@@ -673,7 +684,7 @@ export default function App() {
                       type="button"
                       className="btn-export"
                       onClick={exportExcel}
-                      title="Export selon les filtres du classement (profil géographique, décision) et le seuil de score des options. Excel : liste + Top 10. ZIP : jusqu’à 10 CV selon la décision (options)."
+                      title="Export selon les filtres du classement (profil géographique, décision) et le seuil de score des options. Excel : liste + Top 10. ZIP : jusqu'à 10 CV selon la décision (options)."
                     >
                       Télécharger
                     </button>
@@ -691,8 +702,8 @@ export default function App() {
                 <rect x="8" y="6" width="32" height="36" rx="4" stroke="#D3D1C7" strokeWidth="2" />
                 <path d="M16 18h16M16 24h12M16 30h14" stroke="#D3D1C7" strokeWidth="2" strokeLinecap="round" />
               </svg>
-              <div className="empty-title">Les résultats s’affichent ici</div>
-              <div className="empty-sub">Décrivez le poste, ajoutez des CV, puis lancez l’analyse</div>
+              <div className="empty-title">Les résultats s'affichent ici</div>
+              <div className="empty-sub">Décrivez le poste, ajoutez des CV, puis lancez l'analyse</div>
             </div>
           </section>
         )}
