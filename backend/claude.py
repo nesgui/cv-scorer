@@ -438,7 +438,7 @@ async def call_claude_extract_facts(cv_text: str, cv_name: str) -> dict:
             }
         ]
         data, usage = await _anthropic_json_round(
-            cv_name, messages=messages, max_tokens=500, phase="extract"
+            cv_name, messages=messages, max_tokens=900, phase="extract"
         )
     else:
         prompt = (
@@ -447,7 +447,7 @@ async def call_claude_extract_facts(cv_text: str, cv_name: str) -> dict:
             f"CV — fichier « {cv_name} » :\n{body_cv}\n\n{JSON_EXTRACT_FIELDS}"
         )
         data, usage = await _anthropic_json_round(
-            cv_name, user_prompt=prompt, max_tokens=500, phase="extract"
+            cv_name, user_prompt=prompt, max_tokens=900, phase="extract"
         )
     return data
 

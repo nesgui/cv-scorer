@@ -104,7 +104,8 @@ class ExportItem(BaseModel):
             if data.get(field) is None:
                 data[field] = ""
         # Les listes ne doivent pas être null
-        for field in ("points_forts", "points_faibles", "competences_cles"):
+        for field in ("points_forts", "points_faibles", "competences_cles",
+                      "postes_occupes", "diplomes"):
             v = data.get(field)
             if not isinstance(v, list):
                 data[field] = []
