@@ -340,6 +340,8 @@ def _scoring_cache_stable() -> str:
         "pour contacts ; (3) attribuer un score 0–100 ÉGAL à la somme exacte des 5 critères de criteria_scores (chacun /20) ;\n"
         "(4) decision : oui si score ≥ 75 et profil crédible ; peut-être entre 50 et 74 ; non si < 50 ou inadéquation forte ;\n"
         "(5) points_forts / points_faibles : courts, factuels, 2 à 4 items ; (6) recommandation : une phrase actionnable ;\n"
+        "(9) postes_occupes : extraire TOUTES les expériences professionnelles du CV, format \"Poste | Entreprise | Période\" ;\n"
+        "(10) diplomes : extraire TOUS les diplômes, formations et certifications mentionnés dans le CV ;\n"
         "(7) profil_geographique : t'appuyer sur indicatif téléphone (+235 Tchad, +33 France…), lieu dernière expérience,\n"
         "lieu poste actuel ; national_tchad si parcours surtout au Tchad ; international sinon ; inconnu si ambigu ;\n"
         "(8) respecter le schéma JSON strict sans texte hors JSON.\n"
@@ -384,8 +386,8 @@ Schéma exact :
   "decision": "oui|peut-être|non"
 }
 RÈGLE ABSOLUE : score = adequation_poste + experience_sectorielle + diplomes_certifications + competences_techniques + stabilite_carriere (chacun entre 0 et 20, total 0–100).
-postes_occupes : liste des expériences professionnelles, chaque entrée au format "Intitulé de poste | Entreprise | Période" (ex. "Directeur Financier | Banque Sahel | 2019-2023"). Omettre la partie absente du CV. Ordre chronologique inverse.
-diplomes : liste des diplômes, formations initiales et certifications du candidat.
+postes_occupes : OBLIGATOIRE — lister TOUTES les expériences professionnelles du CV, chaque entrée au format "Intitulé de poste | Entreprise | Période" (ex. "Directeur Financier | Banque Sahel | 2019-2023"). [] uniquement si le CV ne contient aucune expérience professionnelle.
+diplomes : OBLIGATOIRE — lister TOUS les diplômes, formations et certifications du CV (ex. "Master Finance | Université de N'Djamena | 2015"). [] uniquement si le CV ne mentionne aucune formation.
 decision: oui si score ≥ 75, peut-être si 50–74, non si < 50.
 document_type : "cv" si le document contient un curriculum vitae, même accompagné d'une lettre de motivation ; "autre" UNIQUEMENT si le document ne contient aucun élément de CV (attestation seule, diplôme seul, fiche de paie…) — si texte vide ou illisible, garder "cv".
 profil_geographique : utiliser indicatif téléphone, lieu dernière expérience pro, lieu travail actuel ; national_tchad si surtout Tchad, international si surtout hors Tchad, inconnu si absent ou ambigu."""
