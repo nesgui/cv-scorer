@@ -32,8 +32,7 @@ def _extraction_cache_stable() -> str:
 Tu extrais des faits objectifs depuis un CV brut. Ne juge pas l'adéquation à un poste ici : uniquement identification
 de données factuelles (nom si visible, formations, expériences, compétences déclarées, outils, langues, secteurs).
 Règles : (1) ne pas inventer ; si absent, liste vide ou 0 selon le schéma ; (2) normaliser les années d'expérience
-en entier cohérent avec les dates ou mentions (« 5 ans », « depuis 2018 ») ; (3) postes_clés : intitulés ou entreprises
-marquantes, ordre chronologique ou par importance si ambigu ; (4) competences_liste : verbes d'action ou libellés courts ;
+en entier cohérent avec les dates ou mentions (« 5 ans », « depuis 2018 ») ; (3) postes_clés : chaque entrée au format "Intitulé de poste | Entreprise | Période" (ex. "Chef Comptable | Total Tchad | 2018-2022") ; omettre la partie absente du CV ; ordre chronologique inverse ; (4) competences_liste : verbes d'action ou libellés courts ;
 (5) outils_ou_logiciels : noms d'outils, ERP, langages, suites bureautiques ; (6) langues avec niveau si indiqué ;
 (7) secteurs : banque, assurance, retail, public, etc. si identifiable ; (8) diplomes : dernier diplôme et certifications
 pertinentes ; (9) texte illisible ou scan raté : rester prudent, champs vides plutôt que supposition ;
@@ -70,6 +69,8 @@ Schéma exact :
   "telephone": "+33 6 xx xx xx ou null",
   "niveau": "junior|confirmé|senior|expert",
   "annees_experience": 5,
+  "postes_occupes": ["Intitulé de poste | Entreprise | Période", "Intitulé 2 | Entreprise 2 | Période 2"],
+  "diplomes": ["Diplôme ou certification 1", "Diplôme 2"],
   "points_forts": ["point fort 1", "point fort 2", "point fort 3"],
   "points_faibles": ["point faible 1", "point faible 2"],
   "competences_cles": ["compétence 1", "compétence 2", "compétence 3"],
@@ -78,6 +79,8 @@ Schéma exact :
   "decision": "oui|peut-être|non"
 }
 Score sur 100. decision: oui >= 75, peut-être 50-74, non < 50.
+postes_occupes : liste des expériences professionnelles, chaque entrée au format "Intitulé de poste | Entreprise | Période" (ex. "Directeur Financier | Banque Sahel | 2019-2023"). Si l'un des éléments est absent du CV, omettre la partie manquante. Ordre chronologique inverse.
+diplomes : liste des diplômes, formations initiales et certifications du candidat.
 profil_geographique : utiliser téléphone (indicatif), lieu dernière expérience pro, lieu travail actuel du CV quand présents ;
 national_tchad (surtout Tchad), international (surtout hors Tchad), inconnu si absent ou ambigu."""
 
@@ -90,7 +93,7 @@ JSON_EXTRACT_FIELDS = """Schéma JSON exact :
   "lieu_travail_actuel": "ville et/ou pays du poste actuel ou en cours si mentionné, ou chaîne vide",
   "annees_experience_estime": 0,
   "diplomes": ["diplôme ou formation 1"],
-  "postes_cles": ["intitulé ou entreprise marquant 1"],
+  "postes_cles": ["Intitulé de poste | Entreprise | Période", "Intitulé 2 | Entreprise 2 | Période 2"],
   "competences_liste": ["compétence 1", "compétence 2"],
   "outils_ou_logiciels": ["outil 1"],
   "langues": ["langue niveau"],
@@ -521,5 +524,10 @@ async def call_claude(cv_text: str, cv_name: str, poste: str) -> dict:
     """Extraction + scoring en deux passes si CLAUDE_TWO_PASS, sinon une passe."""
     if CLAUDE_TWO_PASS:
         facts = await call_claude_extract_facts(cv_text, cv_name)
-        return await call_claude_score_from_facts(facts, cv_name, poste, cv_text)
+        result = await call_claude_score_from_facts(facts, cv_name, poste, cv_text)
+        if not result.get("postes_occupes"):
+            result["postes_occupes"] = facts.get("postes_cles", [])
+        if not result.get("diplomes"):
+            result["diplomes"] = facts.get("diplomes", [])
+        return result
     return await call_claude_single_pass(cv_text, cv_name, poste)

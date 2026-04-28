@@ -279,6 +279,8 @@ def _build_export_sheet(ws, rows: List[ExportItem]) -> None:
         "Profil géographique",
         "Niveau",
         "Années exp.",
+        "Postes occupés",
+        "Diplômes",
         "Points forts",
         "Points faibles",
         "Compétences clés",
@@ -315,6 +317,8 @@ def _build_export_sheet(ws, rows: List[ExportItem]) -> None:
             _profil_geographique_label(r.profil_geographique),
             r.niveau,
             r.annees_experience if r.annees_experience is not None else "",
+            "\n".join(r.postes_occupes),
+            "\n".join(r.diplomes),
             " | ".join(r.points_forts),
             " | ".join(r.points_faibles),
             " | ".join(r.competences_cles),
@@ -337,19 +341,21 @@ def _build_export_sheet(ws, rows: List[ExportItem]) -> None:
     ws.sheet_view.showGridLines = False
 
     widths = {
-        "A": 8,
-        "B": 28,
-        "C": 32,
-        "D": 16,
-        "E": 9,
-        "F": 26,
-        "G": 14,
-        "H": 12,
-        "I": 42,
-        "J": 42,
-        "K": 36,
-        "L": 48,
-        "M": 36,
+        "A": 8,   # Rang
+        "B": 28,  # Nom
+        "C": 32,  # Email
+        "D": 16,  # Téléphone
+        "E": 9,   # Score
+        "F": 26,  # Profil géographique
+        "G": 14,  # Niveau
+        "H": 12,  # Années exp.
+        "I": 36,  # Postes occupés
+        "J": 32,  # Diplômes
+        "K": 42,  # Points forts
+        "L": 42,  # Points faibles
+        "M": 36,  # Compétences clés
+        "N": 48,  # Recommandation
+        "O": 36,  # Fichier
     }
     for col_letter, w in widths.items():
         ws.column_dimensions[col_letter].width = w

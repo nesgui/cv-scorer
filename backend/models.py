@@ -14,6 +14,8 @@ class CVResult(BaseModel):
     profil_geographique: str = "inconnu"
     niveau: str = ""
     annees_experience: Optional[int] = None
+    postes_occupes: List[str] = Field(default_factory=list)
+    diplomes: List[str] = Field(default_factory=list)
     points_forts: List[str] = Field(default_factory=list)
     points_faibles: List[str] = Field(default_factory=list)
     competences_cles: List[str] = Field(default_factory=list)
@@ -45,6 +47,8 @@ class ExportItem(BaseModel):
     profil_geographique: str = "inconnu"
     niveau: str = ""
     annees_experience: Optional[int] = None
+    postes_occupes: List[str] = Field(default_factory=list)
+    diplomes: List[str] = Field(default_factory=list)
     points_forts: List[str] = Field(default_factory=list)
     points_faibles: List[str] = Field(default_factory=list)
     competences_cles: List[str] = Field(default_factory=list)
