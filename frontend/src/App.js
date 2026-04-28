@@ -12,6 +12,7 @@ import { buildTopExportZip, sanitizeFolderName } from './utils/exportTopZip';
 import './styles.css';
 
 const API_BASE = process.env.REACT_APP_API_URL || '';
+const API_V1 = `${API_BASE}/api/v1`;  // FIX 8: versioned API prefix
 const FILE_LIST_COLLAPSE_AT = 5;
 
 function getAuthHeaders(contentType = true) {
@@ -121,6 +122,8 @@ export default function App() {
   const [billingAlert, setBillingAlert] = useState(null);
   const [rankingPage, setRankingPage] = useState(1);
   const [rankingPageSize, setRankingPageSize] = useState(50);
+  const [biasBannerDismissed, setBiasBannerDismissed] = useState(false);
+  const [errorsExpanded, setErrorsExpanded] = useState(false);
   const resultsListScrollRef = useRef(null);
   const abortRef = useRef(null);
   const { addToast, ToastContainer } = useToast();
@@ -219,7 +222,7 @@ export default function App() {
     let processed = 0;
 
     try {
-      const resp = await fetch(`${API_BASE}/api/score-stream`, {
+      const resp = await fetch(`${API_V1}/score-stream`, {
         method: 'POST',
         body: formData,
         signal: ctrl.signal,
@@ -337,7 +340,7 @@ export default function App() {
         min_score: 0,
         top_n: 10,
       };
-      const resp = await fetch(`${API_BASE}/api/export-excel`, {
+      const resp = await fetch(`${API_V1}/export-excel`, {
         method: 'POST',
         headers: getAuthHeaders(true),
         body: JSON.stringify(payload),
@@ -374,14 +377,18 @@ export default function App() {
     }
   };
 
+  /** CVs qui n'ont pas pu être analysés — affichés à part, hors classement. */
+  const errorResults = useMemo(() => results.filter((r) => r._error), [results]);
+
+  /** Résultats valides (sans erreurs) filtrés pour le classement principal. */
   const filtered = useMemo(
-    () => applyResultFilters(results, scoreMin, geoFilter, filter),
+    () => applyResultFilters(results.filter((r) => !r._error), scoreMin, geoFilter, filter),
     [results, scoreMin, geoFilter, filter],
   );
 
   /** Même logique que le classement, avec le seuil « Options & outils » pour l'export. */
   const resultsForExport = useMemo(
-    () => applyResultFilters(results, minScoreExport, geoFilter, filter),
+    () => applyResultFilters(results.filter((r) => !r._error), minScoreExport, geoFilter, filter),
     [results, minScoreExport, geoFilter, filter],
   );
 
@@ -478,7 +485,7 @@ export default function App() {
             <div className="drop-title">
               {isDragActive ? 'Déposer ici…' : 'Glisser-déposer les CV ici'}
             </div>
-            <div className="drop-sub">PDF uniquement · plusieurs fichiers</div>
+            <div className="drop-sub">PDF ou Word (.docx) · plusieurs fichiers</div>
           </div>
 
           {files.length > 0 && (
@@ -561,6 +568,26 @@ export default function App() {
 
           {phase === 'done' && <StatsPanel results={results} />}
         </section>
+
+        {(phase === 'running' || phase === 'done') && results.length > 0 && !biasBannerDismissed && (
+          <div className="bias-banner" role="alert" aria-live="polite">
+            <div className="bias-banner-content">
+              <span className="bias-banner-icon" aria-hidden="true">⚠</span>
+              <p className="bias-banner-text">
+                Ces scores sont indicatifs et doivent être validés par un recruteur humain.
+                L'IA peut refléter des biais inconscients liés au nom, à l'université ou au style rédactionnel.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="bias-banner-close"
+              aria-label="Fermer l'avertissement"
+              onClick={() => setBiasBannerDismissed(true)}
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         {(phase === 'running' || phase === 'done') && (
           <section className="card results-card" aria-label="Résultats">
@@ -678,6 +705,36 @@ export default function App() {
                     ))}
                   </div>
                 </div>
+
+                {errorResults.length > 0 && (
+                  <div className="error-files-section">
+                    <button
+                      type="button"
+                      className="error-files-toggle"
+                      onClick={() => setErrorsExpanded((v) => !v)}
+                      aria-expanded={errorsExpanded}
+                    >
+                      Fichiers en erreur ({errorResults.length}){' '}
+                      {errorsExpanded ? '▲' : '▼'}
+                    </button>
+                    {errorsExpanded && (
+                      <div className="results-list">
+                        {errorResults.map((r, i) => (
+                          <ResultCard
+                            key={`${r._file}-err-${i}`}
+                            result={r}
+                            rank={filtered.length + i}
+                            minContactScore={minContactScore}
+                            compareEnabled={false}
+                            compareSelected={false}
+                            onToggleCompare={() => {}}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {phase === 'done' && (
                   <div className="export-row">
                     <button
@@ -686,7 +743,7 @@ export default function App() {
                       onClick={exportExcel}
                       title="Export selon les filtres du classement (profil géographique, décision) et le seuil de score des options. Excel : liste + Top 10. ZIP : jusqu'à 10 CV selon la décision (options)."
                     >
-                      Télécharger
+                      Exporter (Excel + CV)
                     </button>
                   </div>
                 )}

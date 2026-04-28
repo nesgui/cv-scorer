@@ -1,5 +1,14 @@
 import React from 'react';
 
+function decisionLabel(decision) {
+  const map = {
+    oui: 'À contacter',
+    'peut-être': 'À évaluer',
+    non: 'Non retenu',
+  };
+  return map[decision] || decision || '—';
+}
+
 function profilGeoLabel(pg) {
   if (pg === 'mixte') return '—';
   const m = {
@@ -51,7 +60,7 @@ export default function ComparePanel({ items, onClose }) {
             )}
             {row(
               'Décision',
-              items.map((r) => r.decision),
+              items.map((r) => decisionLabel(r.decision)),
             )}
             {row(
               'Profil géographique',

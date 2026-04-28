@@ -3,23 +3,28 @@ import React from 'react';
 export default function StatsPanel({ results }) {
   if (!results || results.length === 0) return null;
 
+  const validResults = results.filter((r) => !r._error);
+  const avgScore = validResults.length
+    ? Math.round(validResults.reduce((a, r) => a + (r.score || 0), 0) / validResults.length)
+    : 0;
+
   const stats = [
     { label: 'Analysés', val: results.length, color: '#005596', bg: '#E8F2F9' },
     {
       label: 'À contacter',
-      val: results.filter((r) => r.decision === 'oui').length,
+      val: validResults.filter((r) => r.decision === 'oui').length,
       color: '#004070',
       bg: '#D6EAF5',
     },
     {
       label: 'À évaluer',
-      val: results.filter((r) => r.decision === 'peut-être').length,
+      val: validResults.filter((r) => r.decision === 'peut-être').length,
       color: '#B45309',
       bg: '#FFF4E6',
     },
     {
       label: 'Score moyen',
-      val: Math.round(results.reduce((a, r) => a + (r.score || 0), 0) / results.length),
+      val: avgScore,
       color: '#005596',
       bg: '#E8F2F9',
     },

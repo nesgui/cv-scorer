@@ -1,13 +1,43 @@
 from pydantic import BaseModel, Field, field_validator, model_validator
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 _PROFIL_GEO = frozenset({"national_tchad", "international", "inconnu"})
+
+
+class CriteriaScores(BaseModel):
+    """Per-criterion score breakdown returned by the LLM (FIX 7).
+
+    Each field is capped at 20; their sum must equal the parent score field.
+    Made a separate model so it can be None for legacy results or failed analyses.
+    """
+    adequation_poste: int = Field(0, ge=0, le=20)
+    experience_sectorielle: int = Field(0, ge=0, le=20)
+    diplomes_certifications: int = Field(0, ge=0, le=20)
+    competences_techniques: int = Field(0, ge=0, le=20)
+    stabilite_carriere: int = Field(0, ge=0, le=20)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_floats(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        for k in ("adequation_poste", "experience_sectorielle",
+                  "diplomes_certifications", "competences_techniques",
+                  "stabilite_carriere"):
+            v = data.get(k)
+            if v is not None:
+                try:
+                    data[k] = int(round(float(v)))
+                except (TypeError, ValueError):
+                    data[k] = 0
+        return data
 
 
 class CVResult(BaseModel):
     model_config = {"populate_by_name": True}
 
     score: int = Field(0, ge=0, le=100)
+    criteria_scores: Optional[CriteriaScores] = None  # FIX 7
     nom: str = ""
     email: Optional[str] = None
     telephone: Optional[str] = None

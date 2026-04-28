@@ -35,6 +35,44 @@ function decisionBadge(decision) {
   return map[decision] || map['non'];
 }
 
+const CRITERIA_LABELS = [
+  { key: 'adequation_poste',        label: 'Adéquation poste' },
+  { key: 'experience_sectorielle',  label: 'Exp. sectorielle' },
+  { key: 'diplomes_certifications', label: 'Diplômes & certif.' },
+  { key: 'competences_techniques',  label: 'Compétences tech.' },
+  { key: 'stabilite_carriere',      label: 'Stabilité carrière' },
+];
+
+function criteriaBarClass(val) {
+  if (val >= 14) return 'criterion-bar-fill';
+  if (val >= 8)  return 'criterion-bar-fill criterion-bar-fill--mid';
+  return 'criterion-bar-fill criterion-bar-fill--low';
+}
+
+function CriteriaBreakdown({ criteriaScores }) {
+  if (!criteriaScores) return null;
+  return (
+    <div className="criteria-breakdown">
+      <div className="criteria-breakdown-title">Détail par critère (/20)</div>
+      {CRITERIA_LABELS.map(({ key, label }) => {
+        const val = criteriaScores[key] ?? 0;
+        return (
+          <div key={key} className="criterion-row">
+            <span className="criterion-label">{label}</span>
+            <div className="criterion-bar-bg">
+              <div
+                className={criteriaBarClass(val)}
+                style={{ width: `${(val / 20) * 100}%` }}
+              />
+            </div>
+            <span className="criterion-score">{val}/20</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function profilGeoShort(pg) {
   if (pg === 'mixte') return null;
   const m = {
@@ -138,6 +176,8 @@ export default function ResultCard({
                 ))}
               </div>
             )}
+            {/* FIX 7: per-criterion breakdown */}
+            <CriteriaBreakdown criteriaScores={result.criteria_scores} />
           </div>
         )}
         <button type="button" className="expand-btn" onClick={() => setExpanded(!expanded)}>

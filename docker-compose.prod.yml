@@ -37,9 +37,10 @@ services:
       - ALLOWED_ORIGINS=https://${DOMAIN}
       - RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-10}
       - API_TOKEN=${API_TOKEN:-}
+      - REQUIRE_API_TOKEN=${REQUIRE_API_TOKEN:-1}
       - CLAUDE_TWO_PASS=${CLAUDE_TWO_PASS:-}
       - CLAUDE_PROMPT_CACHE=${CLAUDE_PROMPT_CACHE:-1}
-      - CV_TEXT_MAX_CHARS=${CV_TEXT_MAX_CHARS:-3000}
+      - CV_TEXT_MAX_CHARS=${CV_TEXT_MAX_CHARS:-12000}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]

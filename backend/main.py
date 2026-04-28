@@ -3,9 +3,13 @@ import io
 import json
 import re
 import time
+import uuid
 import logging
 from typing import Any, List, Optional
 from collections import defaultdict
+
+import structlog
+from structlog.contextvars import bind_contextvars, clear_contextvars
 
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Request, Depends, Body
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,11 +31,11 @@ from config import (
     MAX_FILE_SIZE_MB,
 )
 from models import ExportItem, ExportExcelRequest
-from extractors import extract_text, MAX_TEXT_LENGTH
+from extractors import extract_text, validate_file_magic, MAX_TEXT_LENGTH
 from claude import call_claude, close_client, MODEL, CLAUDE_TWO_PASS
 from user_errors import scoring_error_for_user
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 app = FastAPI(title="CV Scorer API", version="2.0.0")
 
@@ -50,6 +54,25 @@ async def shutdown_event():
 
 
 _rate_store: dict[str, list[float]] = defaultdict(list)
+
+
+async def _prune_rate_store() -> None:
+    """Background task that evicts stale IP entries from _rate_store every hour.
+
+    Without this, IPs that never return accumulate indefinitely because the
+    per-request cleanup only runs when that specific IP makes a new request.
+    """
+    while True:
+        await asyncio.sleep(3600)
+        now = time.time()
+        dead = [
+            ip for ip, ts in list(_rate_store.items())
+            if not any(now - t < 60 for t in ts)
+        ]
+        for ip in dead:
+            del _rate_store[ip]
+        if dead:
+            logger.info("rate_store_pruned", evicted=len(dead))
 
 
 async def check_rate_limit(request: Request):
@@ -90,6 +113,7 @@ async def startup_event():
         logger.critical("ANTHROPIC_API_KEY is not set!")
     if REQUIRE_API_TOKEN and not API_TOKEN:
         logger.critical("REQUIRE_API_TOKEN=1 mais API_TOKEN non défini — les routes /api/* renverront 503.")
+    asyncio.create_task(_prune_rate_store())
 
 
 @app.get("/health")
@@ -106,7 +130,7 @@ async def health():
     }
 
 
-@app.post("/api/score-stream", dependencies=[Depends(check_rate_limit), Depends(check_auth)])
+@app.post("/api/v1/score-stream", dependencies=[Depends(check_rate_limit), Depends(check_auth)])
 async def score_stream(
     files: List[UploadFile] = File(...),
     poste: str = Form(...),
@@ -128,6 +152,14 @@ async def score_stream(
     else:
         max_concurrent = max(1, min(max_concurrent, MAX_CONCURRENT_LIMIT))
 
+    # FIX 6: bind a short request ID to every log line for this request
+    clear_contextvars()
+    bind_contextvars(
+        request_id=str(uuid.uuid4())[:8],
+        model=MODEL,
+        two_pass=CLAUDE_TWO_PASS,
+    )
+
     file_data = []
     max_bytes = MAX_FILE_SIZE_MB * 1024 * 1024
     for f in files:
@@ -144,7 +176,24 @@ async def score_stream(
                 status_code=400,
                 detail=f"Fichier {f.filename} trop volumineux ({len(content) // (1024*1024)}Mo > {MAX_FILE_SIZE_MB}Mo)",
             )
+        # FIX 3: reject files whose binary signature does not match their extension
+        if not validate_file_magic(content, ext):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Fichier « {name} » : contenu invalide. "
+                    f"Le fichier ne correspond pas au format {ext.upper()} déclaré "
+                    f"(signature binaire incorrecte). Vérifiez que le fichier n'est pas corrompu ou renommé."
+                ),
+            )
         file_data.append({"name": name, "content": content})
+
+    logger.info(
+        "analysis_started",
+        file_count=len(file_data),
+        processing_mode=processing_mode,
+        max_concurrent=max_concurrent,
+    )
 
     async def event_generator():
         semaphore = asyncio.Semaphore(max_concurrent)
@@ -183,6 +232,14 @@ async def score_stream(
                     )
                     result["_file"] = name
                     result["_index"] = idx
+
+                    if result.get("document_type") == "autre":
+                        excluded_count += 1
+                        await output_queue.put(
+                            f"data: {json.dumps({'type':'excluded','index':idx,'name':name})}\n\n"
+                        )
+                        return
+
                     logger.info(
                         "result_fields cv=%s nom=%r email=%r telephone=%r score=%s",
                         name,
@@ -192,11 +249,21 @@ async def score_stream(
                         result.get("score"),
                     )
                     results.append(result)
+                    # FIX 6: structured log per CV with score and token context
+                    logger.info(
+                        "cv_scored",
+                        cv=name,
+                        score=result.get("score"),
+                        decision=result.get("decision"),
+                        profil=result.get("profil_geographique"),
+                        extract_ms=round(extract_ms),
+                        claude_ms=round(claude_ms),
+                    )
                     await output_queue.put(
                         f"data: {json.dumps({'type':'result','index':idx,'name':name,'data':result})}\n\n"
                     )
                 except Exception as e:
-                    logger.error("Error processing %s: %s", name, e, exc_info=True)
+                    logger.error("cv_error", cv=name, error=str(e), exc_info=True)
                     err_code, user_msg = scoring_error_for_user(e)
                     err = {
                         "_file": name,
@@ -233,6 +300,13 @@ async def score_stream(
             await runner
 
             sorted_results = sorted(results, key=lambda x: x.get("score", 0), reverse=True)
+            # FIX 6: final summary log
+            logger.info(
+                "analysis_complete",
+                total=len(results),
+                excluded=excluded_count,
+                errors=sum(1 for r in results if r.get("_error")),
+            )
             yield f"data: {json.dumps({'type':'complete','results':sorted_results,'excluded_count':excluded_count})}\n\n"
         except asyncio.CancelledError:
             if runner and not runner.done():
@@ -386,7 +460,7 @@ def _build_export_sheet(ws, rows: List[ExportItem]) -> None:
     ws.auto_filter.ref = f"A1:{last_col_letter}{last_row}"
 
 
-@app.post("/api/export-excel", dependencies=[Depends(check_auth)])
+@app.post("/api/v1/export-excel", dependencies=[Depends(check_auth)])
 async def export_excel(body: Any = Body(...)):
     """Export Excel : feuille complète (score ≥ min) + feuille Top N (sans filtre sur la décision)."""
     try:
@@ -394,6 +468,12 @@ async def export_excel(body: Any = Body(...)):
     except Exception as e:
         logger.error("export_excel: échec de validation du corps — %s", e, exc_info=True)
         raise HTTPException(status_code=422, detail=f"Données invalides : {e}")
+
+    if len(req.results) > 500:
+        raise HTTPException(
+            status_code=400,
+            detail="Maximum 500 résultats par export. Appliquez un filtre de score pour réduire la sélection.",
+        )
 
     all_rows = _rows_for_excel(req)
     top_rows = all_rows[: req.top_n]
@@ -420,3 +500,22 @@ async def export_excel(body: Any = Body(...)):
             "Content-Disposition": 'attachment; filename="export_candidats.xlsx"',
         },
     )
+
+
+# ── FIX 8: Backwards-compatible legacy routes (/api/* → /api/v1/*) ────────────
+# These aliases keep existing clients working while the primary paths move to /api/v1/.
+# They are hidden from the OpenAPI docs (include_in_schema=False).
+app.add_api_route(
+    "/api/score-stream",
+    score_stream,
+    methods=["POST"],
+    include_in_schema=False,
+    dependencies=[Depends(check_rate_limit), Depends(check_auth)],
+)
+app.add_api_route(
+    "/api/export-excel",
+    export_excel,
+    methods=["POST"],
+    include_in_schema=False,
+    dependencies=[Depends(check_auth)],
+)
