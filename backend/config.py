@@ -1,19 +1,50 @@
 import os
 import logging
 
+import structlog
+
 
 def env_int(name: str, default: int) -> int:
-    """Lit un entier depuis l'environnement ; chaîne vide ou absente = default (Docker compose peut passer '')."""
+    """Lit un entier depuis l'environnement ; chaîne vide ou absente = default (Docker compose peut passer '').
+
+    Raises ValueError if the resolved value is <= 0, which would silently disable
+    features like rate limiting or max token budgets.
+    """
     raw = os.getenv(name)
     if raw is None or not str(raw).strip():
         return default
-    return int(str(raw).strip())
+    result = int(str(raw).strip())
+    if result <= 0:
+        raise ValueError(f"{name} doit être > 0, reçu : {result}")
+    return result
 
 
 # --- Logging ---
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+
+# --- Structlog (FIX 6) ---
+# Wraps stdlib logging so all existing logger.info() calls are untouched.
+# In main.py, use structlog.get_logger() + bind_contextvars() to attach
+# request_id to every log line produced during a scoring request.
+structlog.configure(
+    processors=[
+        structlog.contextvars.merge_contextvars,
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.stdlib.add_log_level,
+        structlog.stdlib.add_logger_name,
+        structlog.stdlib.PositionalArgumentsFormatter(),
+        structlog.processors.StackInfoRenderer(),
+        structlog.processors.format_exc_info,
+        structlog.processors.UnicodeDecoder(),
+        structlog.dev.ConsoleRenderer(),
+    ],
+    wrapper_class=structlog.stdlib.BoundLogger,
+    context_class=dict,
+    logger_factory=structlog.stdlib.LoggerFactory(),
+    cache_logger_on_first_use=True,
 )
 
 # --- API Key ---

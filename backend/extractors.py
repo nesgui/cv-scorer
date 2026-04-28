@@ -11,7 +11,8 @@ from config import env_int
 
 logger = logging.getLogger(__name__)
 
-MAX_TEXT_LENGTH = env_int("CV_TEXT_MAX_CHARS", 3000)
+MAX_TEXT_LENGTH = env_int("CV_TEXT_MAX_CHARS", 12000)
+MAX_VISION_PAGES = env_int("CV_VISION_MAX_PAGES", 3)
 
 # En dessous de ce seuil on considère le texte trop pauvre pour une analyse fiable
 _OCR_FALLBACK_MIN_CHARS = 80
@@ -19,6 +20,23 @@ _OCR_FALLBACK_MIN_CHARS = 80
 _EXTRACT_TIMEOUT_S = 30
 
 SUPPORTED_EXTENSIONS = {"pdf", "docx"}
+
+# Magic bytes that identify genuine PDF and DOCX (ZIP-based) containers.
+_PDF_MAGIC = b"%PDF"
+_DOCX_MAGIC = b"PK\x03\x04"
+
+
+def validate_file_magic(content: bytes, ext: str) -> bool:
+    """Returns True only when the file's leading bytes match the declared extension.
+
+    Prevents attackers from uploading executables or malicious payloads renamed
+    to .pdf / .docx. Must be called before any parsing logic.
+    """
+    if ext == "pdf":
+        return content[:4] == _PDF_MAGIC
+    if ext == "docx":
+        return content[:4] == _DOCX_MAGIC
+    return False
 
 
 def _extract_pdf(content: bytes) -> str:
@@ -95,7 +113,7 @@ async def extract_text(filename: str, content: bytes) -> tuple:
         logger.info("Texte insuffisant (%d chars), extraction images pour Claude Vision", len(text.strip()))
         try:
             images = await asyncio.wait_for(
-                asyncio.to_thread(_pdf_pages_as_jpeg_b64, content),
+                asyncio.to_thread(_pdf_pages_as_jpeg_b64, content, MAX_VISION_PAGES),
                 timeout=20,
             )
         except asyncio.TimeoutError:

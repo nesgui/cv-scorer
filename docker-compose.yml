@@ -31,7 +31,7 @@ services:
       - REQUIRE_API_TOKEN=${REQUIRE_API_TOKEN:-}
       - CLAUDE_TWO_PASS=${CLAUDE_TWO_PASS:-}
       - CLAUDE_PROMPT_CACHE=${CLAUDE_PROMPT_CACHE:-1}
-      - CV_TEXT_MAX_CHARS=${CV_TEXT_MAX_CHARS:-3000}
+      - CV_TEXT_MAX_CHARS=${CV_TEXT_MAX_CHARS:-12000}
     restart: unless-stopped
     expose:
       - "8000"
