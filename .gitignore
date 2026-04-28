@@ -8,3 +8,4 @@ __pycache__/
 backend/.venv/
 *.egg-info/
 .pytest_cache/
+cv-scorer.tar
