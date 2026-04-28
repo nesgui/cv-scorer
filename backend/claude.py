@@ -318,8 +318,8 @@ def _extraction_cache_stable() -> str:
         "Tu extrais des faits objectifs depuis un CV brut. Ne juge pas l'adéquation à un poste ici : uniquement identification\n"
         "de données factuelles (nom si visible, formations, expériences, compétences déclarées, outils, langues, secteurs).\n"
         "Règles : (1) ne pas inventer ; si absent, liste vide ou 0 selon le schéma ; (2) normaliser les années d'expérience\n"
-        "en entier cohérent avec les dates ou mentions (« 5 ans », « depuis 2018 ») ; (3) postes_clés : chaque entrée au format "
-        "\"Intitulé de poste | Entreprise | Période\" (ex. \"Chef Comptable | Total Tchad | 2018-2022\") ; "
+        "en entier cohérent avec les dates ou mentions (« 5 ans », « depuis 2018 ») ; (3) postes_occupes : OBLIGATOIRE, "
+        "chaque entrée au format \"Intitulé de poste | Entreprise | Période\" (ex. \"Chef Comptable | Total Tchad | 2018-2022\") ; "
         "omettre la partie absente du CV ; ordre chronologique inverse ; (4) competences_liste : verbes d'action ou libellés courts ;\n"
         "(5) outils_ou_logiciels : noms d'outils, ERP, langages, suites bureautiques ; (6) langues avec niveau si indiqué ;\n"
         "(7) secteurs : banque, assurance, retail, public, etc. si identifiable ; (8) diplomes : dernier diplôme et certifications\n"
@@ -402,7 +402,7 @@ JSON_EXTRACT_FIELDS = """Schéma JSON exact :
   "lieu_travail_actuel": "ville/pays du poste actuel ou en cours, ou chaîne vide",
   "annees_experience_estime": 0,
   "diplomes": ["diplôme ou formation 1"],
-  "postes_cles": ["Intitulé de poste | Entreprise | Période", "Intitulé 2 | Entreprise 2 | Période 2"],
+  "postes_occupes": ["Intitulé de poste | Entreprise | Période", "Intitulé 2 | Entreprise 2 | Période 2"],
   "competences_liste": ["compétence 1", "compétence 2"],
   "outils_ou_logiciels": ["outil 1"],
   "langues": ["langue niveau"],
@@ -440,7 +440,7 @@ async def call_claude_extract_facts(cv_text: str, cv_name: str) -> dict:
             }
         ]
         data, usage = await _anthropic_json_round(
-            cv_name, messages=messages, max_tokens=900, phase="extract"
+            cv_name, messages=messages, max_tokens=1400, phase="extract"
         )
     else:
         prompt = (
@@ -449,7 +449,7 @@ async def call_claude_extract_facts(cv_text: str, cv_name: str) -> dict:
             f"CV — fichier « {cv_name} » :\n{body_cv}\n\n{JSON_EXTRACT_FIELDS}"
         )
         data, usage = await _anthropic_json_round(
-            cv_name, user_prompt=prompt, max_tokens=900, phase="extract"
+            cv_name, user_prompt=prompt, max_tokens=1400, phase="extract"
         )
     return data
 
@@ -571,8 +571,15 @@ async def call_claude(
         facts = await call_claude_extract_facts(cv_text, cv_name)
         result = await call_claude_score_from_facts(facts, cv_name, poste, cv_text)
         if not result.get("postes_occupes"):
-            result["postes_occupes"] = facts.get("postes_cles", [])
+            result["postes_occupes"] = facts.get("postes_occupes", [])
         if not result.get("diplomes"):
             result["diplomes"] = facts.get("diplomes", [])
+        if not result.get("postes_occupes") and not result.get("diplomes"):
+            logger.warning(
+                "postes_occupes et diplomes vides après two-pass pour %s — facts: postes=%s diplomes=%s",
+                cv_name,
+                facts.get("postes_occupes"),
+                facts.get("diplomes"),
+            )
         return result
     return await call_claude_single_pass(cv_text, cv_name, poste)
